@@ -9,7 +9,7 @@ DocFlow combines FastAPI, PostgreSQL, MinIO, Redis, Celery, and OpenAI to provid
 
 ## Table of contents
 
-- [Why DocFlow?](#why-docflow)
+- [Motivation](#motivation)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Tech stack](#tech-stack)
@@ -23,11 +23,13 @@ DocFlow combines FastAPI, PostgreSQL, MinIO, Redis, Celery, and OpenAI to provid
 - [Known limitations](#known-limitations)
 - [License](#license)
 
-## Why DocFlow?
+## Motivation
 
-Document-heavy workflows often require the same plumbing: secure uploads, durable storage, text extraction, long-running AI jobs, status tracking, and result retrieval. DocFlow packages those concerns behind one API so applications can submit documents without blocking an HTTP request while OCR and AI processing complete.
+Organizations receive valuable information in documents, but turning those files into usable data is often slow and repetitive. Each workflow needs the same supporting infrastructure: authenticated uploads, durable storage, text extraction, long-running AI jobs, status tracking, and result retrieval. Building that foundation separately for every application adds complexity before the actual document use case can even be addressed.
 
-The project provides a practical foundation for summarizing reports, extracting fields from invoices, identifying contract metadata, and tracking asynchronous processing outcomes.
+DocFlow centralizes those concerns behind one API. Applications can submit documents quickly while OCR and AI processing continue asynchronously in the background, avoiding long-running HTTP requests and giving clients a consistent way to monitor progress and retrieve results.
+
+The project is intended to be a practical, extensible foundation for workflows such as summarizing reports, extracting invoice fields, identifying contract metadata, and adding new document-processing strategies without rebuilding the surrounding storage and job infrastructure.
 
 ## Features
 
