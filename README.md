@@ -13,7 +13,7 @@ DocFlow combines FastAPI, PostgreSQL, MinIO, Redis, Celery, and OpenAI to provid
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Tech stack](#tech-stack)
-- [Quick start](#quick-start)
+- [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [API reference](#api-reference)
@@ -85,7 +85,7 @@ Errors move the request to `FAILED`. `CANCELLED` exists in the data model, but t
 | pypdf / python-docx | PDF and DOCX text extraction |
 | Tesseract | Image OCR |
 
-## Quick start
+## Quick Start
 
 ### Prerequisites
 
