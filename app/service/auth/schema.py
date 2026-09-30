@@ -5,11 +5,6 @@ from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from fastapi import Body
 
 
-class LoginRequest(BaseModel):
-    email: EmailStr = Body()
-    password: str = Body()
-
-
 class UserBase(BaseModel):
     first_name: str = Body()
     last_name: str = Body()

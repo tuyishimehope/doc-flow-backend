@@ -1,7 +1,6 @@
 from sqlalchemy import func, select
 
 from app.models.schema import Document, File
-from app.service.document.schema import Document_Status
 from app.service.auth.auth import CurrentUser
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +18,7 @@ async def get_file_id(
     if not include_deleted:
         stmt = stmt.where(
             File.deleted_at.is_(None),
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
         )
 
     file_record = await db_session.execute(stmt)
@@ -36,8 +34,7 @@ async def get_all_files_by_user(skip: int, limit: int, user_id: int, db_session:
         .join(Document, Document.file_id == File.id)
         .where(
             Document.user_id == user_id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
             File.deleted_at.is_(None),
         )
         .order_by(File.created_at.desc(), File.id.desc())
@@ -55,8 +52,7 @@ async def get_count(user_id: int, db_session: AsyncSession) -> int:
         .join(File, Document.file_id == File.id)
         .where(
             Document.user_id == user_id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
             File.deleted_at.is_(None),
         )
     )

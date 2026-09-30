@@ -4,7 +4,7 @@ import logging
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.schema import Document, Extracted_Result, File, Processing_Request, Processing_Job, User
+from app.models.schema import Document, Extracted_Result, File, Processing_Request, Processing_Job
 from app.service.auth.auth import CurrentUser
 from app.service.document.schema import Document_Status, Processing_status
 from app.service.file.file import delete_file
@@ -50,8 +50,7 @@ async def get_processing_request_status(processing_request_id: int, current_user
         .where(
             Processing_Request.id == processing_request_id,
             Document.user_id == current_user.id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
         )
     )
 
@@ -69,8 +68,7 @@ async def get_processing_request_result(processing_request_id: int, current_user
             Extracted_Result.processing_request_id
             == processing_request_id,
             Document.user_id == current_user.id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
         )
     )
     result = await db_session.execute(request)
@@ -86,10 +84,7 @@ async def get_document_by_id(
 ) -> Document | None:
     statement = Select(Document).where(Document.id == id, Document.user_id == user_id)
     if not include_deleted:
-        statement = statement.where(
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
-        )
+        statement = statement.where(Document.is_active())
     result = await db_session.execute(statement)
     response = result.scalar_one_or_none()
     return response
@@ -100,8 +95,7 @@ async def get_all_documents(skip: int, limit: int, db_session: AsyncSession, use
         Select(Document)
         .where(
             Document.user_id == user_id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
+            Document.is_active(),
         )
         .order_by(Document.created_at.desc(), Document.id.desc())
         .offset(skip)
@@ -115,8 +109,7 @@ async def get_all_documents(skip: int, limit: int, db_session: AsyncSession, use
 async def get_total_no_of_documents(db_session: AsyncSession, user_id: int) -> int:
     statement = Select(func.count(Document.id)).where(
         Document.user_id == user_id,
-        Document.deleted_at.is_(None),
-        Document.status != Document_Status.DELETED,
+        Document.is_active(),
     )
     result = await db_session.execute(statement)
     response = result.scalar_one()
@@ -165,15 +158,8 @@ async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: 
 
 
 async def get_jobs(id: int, current_user: CurrentUser, db_session: AsyncSession) -> list[Processing_Job] | None:
-    owned_document = await db_session.execute(
-        select(Document.id).where(
-            Document.id == id,
-            Document.user_id == current_user.id,
-            Document.deleted_at.is_(None),
-            Document.status != Document_Status.DELETED,
-        )
-    )
-    if owned_document.scalar_one_or_none() is None:
+    document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
+    if document is None:
         return None
 
     stmt = select(Processing_Job).join(Processing_Request).join(Document).where(
@@ -203,8 +189,7 @@ async def get_processing_request_by_id(id: int, current_user: CurrentUser, db_se
     stmt = Select(Processing_Request).join(Document).where(
         Processing_Request.id == id,
         Document.user_id == current_user.id,
-        Document.deleted_at.is_(None),
-        Document.status != Document_Status.DELETED,
+        Document.is_active(),
     )
     record = await db_session.execute(stmt)
     result = record.scalar_one_or_none()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import String, Text, JSON, Float, Integer, ForeignKey, Index, DateTime, func
+from sqlalchemy import String, Text, JSON, Float, Integer, ForeignKey, Index, DateTime, and_, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -40,6 +40,11 @@ class Document(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), nullable=False)
     
     user: Mapped["User"] = relationship("User", back_populates="documents")
+
+    @classmethod
+    def is_active(cls):
+        """SQL filter for documents that have not been soft-deleted."""
+        return and_(cls.deleted_at.is_(None), cls.status != Document_Status.DELETED)
 
 
 class File(Base):
