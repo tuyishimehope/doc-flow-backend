@@ -1,21 +1,20 @@
 from typing import Annotated
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy import delete as sql_delete
 
-from app.service.auth.auth import create_user, delete_user_by_id, generate_reset_token, get_all_users, hash_password, hash_reset_token, update_user
+from app.service.auth.auth import create_user, delete_user_by_id, generate_reset_token, hash_password, hash_reset_token, update_user
 from app.db.dependencies import get_db_session
-from app.service.auth.schema import ChangePasswordRequest, CreateUserRequest, ForgotPasswordRequest, MessageResponse, PaginatedUserResponse, ResetPasswordRequest, UserResponse, UserUpdate
+from app.service.auth.schema import ChangePasswordRequest, CreateUserRequest, ForgotPasswordRequest, MessageResponse, ResetPasswordRequest, UserResponse, UserUpdate
 from app.service.auth.auth import create_access_token, verify_password
 from app.service.auth.schema import Token
 from app.models import schema
 from app.service.auth.auth import CurrentUser
 from app.core.config import settings
-from app.service.auth.crud import get_count_users
 from app.utils.email_utils import send_password_reset_email
 
 
@@ -41,6 +40,7 @@ async def login_for_access_token(
     result = await db.execute(
         select(schema.User).where(
             func.lower(schema.User.email) == form_data.username.lower(),
+            schema.User.deleted_at.is_(None),
         ),
     )
     user = result.scalars().first()
@@ -82,22 +82,6 @@ async def signup(user: CreateUserRequest, db_session: AsyncSession = Depends(get
                         detail="Email already exists")
 
 
-@router.get("/", response_model=PaginatedUserResponse)
-async def get_all(current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)], limit: int = Query(default=10, ge=1, le=100),
-                  skip: int = Query(default=0, ge=0, le=100)):
-    result = await get_all_users(limit, skip, db_session)
-    total_no_users = await get_count_users(db_session)
-
-    has_more = skip + len(result) < total_no_users
-    return PaginatedUserResponse(
-        users=[UserResponse.model_validate(user) for user in result],
-        total=total_no_users,
-        skip=skip,
-        limit=limit,
-        has_more=has_more
-    )
-
-
 @router.patch("/{id}", response_model=UserResponse)
 async def update_user_info(id: int, user_info: UserUpdate, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
     result = await update_user(id, user_info, current_user, db_session)
@@ -125,6 +109,7 @@ async def forgot_password(
     result = await db.execute(
         select(schema.User).where(
             func.lower(schema.User.email) == request_data.email.lower(),
+            schema.User.deleted_at.is_(None),
         ),
     )
     user = result.scalars().first()
@@ -153,7 +138,7 @@ async def forgot_password(
         background_tasks.add_task(
             send_password_reset_email,
             to_email=user.email,
-            username=user.email,
+            username=user.first_name,
             token=token,
         )
 
@@ -191,7 +176,10 @@ async def reset_password(
         )
 
     result = await db.execute(
-        select(schema.User).where(schema.User.id == reset_token.user_id),
+        select(schema.User).where(
+            schema.User.id == reset_token.user_id,
+            schema.User.deleted_at.is_(None),
+        ),
     )
     user = result.scalars().first()
 

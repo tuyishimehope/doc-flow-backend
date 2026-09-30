@@ -40,6 +40,7 @@ async def get_all_files_by_user(skip: int, limit: int, user_id: int, db_session:
             Document.status != Document_Status.DELETED,
             File.deleted_at.is_(None),
         )
+        .order_by(File.created_at.desc(), File.id.desc())
         .offset(skip)
         .limit(limit)
     )

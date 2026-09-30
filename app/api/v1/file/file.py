@@ -55,7 +55,7 @@ async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: Asyn
 
 
 @router.get("", response_model=PaginatedFileResponse)
-async def get_files(current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)], limit: int = Query(default=10, ge=1, le=50), skip: int = Query(default=0, ge=0, le=50)):
+async def get_files(current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)], limit: int = Query(default=10, ge=1, le=50), skip: int = Query(default=0, ge=0)):
     result = await get_all_files(limit=limit, skip=skip, user_id=current_user.id, db_session=db_session)
     total = await get_count(user_id=current_user.id,db_session=db_session)
     return PaginatedFileResponse(files=[FileResponse.model_validate(file) for file in result],

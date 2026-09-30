@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     mail_use_tls: bool = True
 
     frontend_url: str = "http://localhost:8000"
+    # JSON list in .env, e.g. cors_origins=["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000"]
     
     
 def load_settings() -> Settings:
