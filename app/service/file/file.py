@@ -1,4 +1,3 @@
-import os
 import logging
 
 from fastapi import UploadFile
@@ -44,22 +43,6 @@ def get_file(file_id: int):
 
 def delete_file(file_id: int):
     minio_client.remove_object(BUCKET_NAME, str(file_id))
-
-
-async def update_file(file: UploadFile, file_id: int):
-    file.file.seek(0, 2)
-    size = file.file.tell()
-    file.file.seek(0)
-
-    minio_client.put_object(
-        bucket_name=BUCKET_NAME,
-        object_name=str(file_id),
-        data=file.file,
-        length=size,
-        content_type=file.content_type or "",
-    )
-
-    return {"updated": file_id}
 
 
 async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSession):

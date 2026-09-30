@@ -273,6 +273,8 @@ Example response:
 {"document_id":1,"processing_request_id":1,"status":"QUEUED"}
 ```
 
+`instructions` is optional.
+
 Valid processing modes are `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRACT_METADATA`.
 
 ### Check status and retrieve the result
@@ -360,8 +362,7 @@ app/
 ├── models/schema.py        # SQLAlchemy persistence models
 ├── service/                # Auth, document, file, and OpenAI logic
 ├── tasks/                  # Celery configuration and tasks
-├── utils/                  # Text extraction and email helpers
-└── workers/                # Worker-related modules
+└── utils/                  # Text extraction and email helpers
 migrations/                 # Alembic migrations
 templates/email/            # Password-reset email template
 tests/                      # API tests and sample assets

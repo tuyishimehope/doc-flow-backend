@@ -8,13 +8,12 @@ from fastapi import Depends, HTTPException, status
 import jwt
 from pwdlib import PasswordHash
 from fastapi.security import OAuth2PasswordBearer
-from argon2 import PasswordHasher
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
 from app.db.dependencies import get_db_session
-from app.service.auth.schema import LoginRequest, UserUpdate
+from app.service.auth.schema import UserUpdate
 from app.core.config import settings
 from app.models.schema import User
 from app.service.auth.crud import get_user_by_email
@@ -63,26 +62,6 @@ def verify_access_token(token: str) -> str | None:
         return None
     else:
         return payload.get("sub")
-
-
-async def authenticate(login_info: LoginRequest, db_session: AsyncSession):
-    try:
-        user_obj = await get_user_by_email(email=login_info.email, db_session=db_session)
-        if user_obj is None:
-            raise
-
-        ph = PasswordHasher()
-
-        result = ph.verify(user_obj.password_hash,
-                           password=login_info.password)
-
-        if result == False:
-            raise
-
-        if login_info.email == user_obj.email:
-            return user_obj.email
-    except Exception as e:
-        raise e
 
 
 async def create_user(first_name: str, last_name: str, email: str, password: str, db_session: AsyncSession,):

@@ -21,14 +21,7 @@ class OpenaiService:
     async def close(self) -> None:
         await self.client.close()
 
-    def _check_input_size(self, content: str) -> None:
-        if len(content) > settings.OPENAI_MAX_INPUT_CHARS:
-            raise ValueError(
-                f"Extracted text exceeds the {settings.OPENAI_MAX_INPUT_CHARS} character AI limit"
-            )
-
     async def generate_summary(self, content: str, instructions: str) -> str:
-        self._check_input_size(content)
         response = await self.client.responses.create(
             model=settings.OPENAI_MODEL,
             instructions=(
@@ -65,7 +58,6 @@ class OpenaiService:
         result_model: type[StructuredResult],
         format_name: str,
     ) -> dict:
-        self._check_input_size(content)
         response = await self.client.responses.parse(
             model=settings.OPENAI_MODEL,
             instructions=(

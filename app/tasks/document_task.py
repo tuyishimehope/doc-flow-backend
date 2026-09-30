@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 from sqlalchemy import Select
@@ -80,7 +80,7 @@ async def process_document(self, processing_request_id: int):
             processing_request_id=processing_request_id,
             attempt_number=self.request.retries + 1,
             status=Processing_Job_Status.RUNNING,
-            started_at=datetime.now(),
+            started_at=datetime.now(timezone.utc),
         )
         processing_request.status = Processing_status.PROCESSING
         db_session.add(job)
@@ -114,7 +114,7 @@ async def process_document(self, processing_request_id: int):
             processing_request.status = Processing_status.FAILED
             job.status = Processing_Job_Status.FAILED
             job.failure_reason = "No text could be extracted from the uploaded file"
-            job.completed_at = datetime.now()
+            job.completed_at = datetime.now(timezone.utc)
             db_session.commit()
             return
 
@@ -124,7 +124,7 @@ async def process_document(self, processing_request_id: int):
             job.failure_reason = (
                 f"Extracted text exceeds the configured {settings.OPENAI_MAX_INPUT_CHARS} character limit"
             )
-            job.completed_at = datetime.now()
+            job.completed_at = datetime.now(timezone.utc)
             db_session.commit()
             logger.warning(
                 "Document text exceeded AI input limit",
@@ -173,7 +173,7 @@ async def process_document(self, processing_request_id: int):
         )
         processing_request.status = Processing_status.COMPLETED
         job.status = Processing_Job_Status.COMPLETED
-        job.completed_at = datetime.now()
+        job.completed_at = datetime.now(timezone.utc)
         db_session.commit()
     except Exception:
         db_session.rollback()
@@ -192,7 +192,7 @@ async def process_document(self, processing_request_id: int):
                     else Processing_Job_Status.FAILED
                 )
                 job.failure_reason = "Document processing failed; see worker logs"
-                job.completed_at = datetime.now()
+                job.completed_at = datetime.now(timezone.utc)
             db_session.commit()
         raise
     finally:

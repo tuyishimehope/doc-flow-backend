@@ -1,5 +1,4 @@
 from minio import Minio
-import os
 
 from app.core.config import settings
 

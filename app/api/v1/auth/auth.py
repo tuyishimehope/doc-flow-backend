@@ -21,15 +21,6 @@ from app.utils.email_utils import send_password_reset_email
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
 
-# @router.post("/login")
-# async def login(login_info: LoginRequest, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
-#     result = await authenticate(login_info, db_session)
-#     if result is None:
-#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-#                             detail="Email or Password is not correct")
-#     return result
-
-
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
