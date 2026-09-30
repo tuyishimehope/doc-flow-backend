@@ -1,5 +1,4 @@
 from fastapi import UploadFile
-import traceback
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -8,42 +7,53 @@ from app.tasks.document_task import start_processing
 from app.utils.document import get_file_extension
 from .schema import Processing_Type
 from app.service.document.schema import Processing_status, Processing_Type
-from app.service.file.file import post_file, get_file
+from app.service.file.file import post_file, get_file, delete_file
 from app.service.document.crud import delete_document_by_id, get_all_documents, get_document_by_id, get_jobs, get_processing_request_result, get_processing_request_status, save_document, save_file, save_processing_request, get_total_no_of_documents, get_processing_request_by_id
 from app.service.auth.crud import get_user_by_id
-from pydantic import EmailStr
 
 
 async def process_document(id: int, file: UploadFile, processing_type: Processing_Type, instructions: str, db_session: AsyncSession):
+    stored_object_id = None
     try:
         file_name = get_file_extension(file)
 
         file_object = await save_file(file=file, file_name=file_name, db_session=db_session)
+        stored_object_id = str(file_object.id)
 
         await post_file(file=file, file_id=str(file_object.id))
 
         user = await get_user_by_id(db_session=db_session, id=id)
 
         if user is None:
-            return
+            raise ValueError("Authenticated user was not found")
 
         document_object = await save_document(user_id=user.id, file=file, file_object=file_object, db_session=db_session)
 
         processing_request_object = await save_processing_request(document_object=document_object, processing_type=processing_type, instructions=instructions, db_session=db_session)
 
         if processing_request_object is None:
-            return
-
-        start_processing.delay(
-            processing_request_id=processing_request_object.id)
+            raise RuntimeError("Could not create the processing request")
 
         processing_request_object.status = Processing_status.QUEUED
         await db_session.commit()
 
+        try:
+            start_processing.delay(processing_request_id=processing_request_object.id)
+        except Exception:
+            await db_session.delete(document_object)
+            await db_session.delete(file_object)
+            await db_session.commit()
+            raise
+
         return {"document_id": document_object.id, "processing_request_id": processing_request_object.id, "status": processing_request_object.status}
-    except Exception as e:
-        print("An expected error occurred", e)
+    except Exception:
         await db_session.rollback()
+        if stored_object_id is not None:
+            try:
+                delete_file(int(stored_object_id))
+            except Exception:
+                # Preserve the original failure; orphan cleanup can be retried operationally.
+                pass
         raise
 
 
@@ -92,8 +102,8 @@ async def delete_document(id: int, current_user: CurrentUser, db_session: AsyncS
 
 
 
-async def get_status_jobs(id: int, db_session: AsyncSession):
-    response = await get_jobs(id=id, db_session=db_session)
+async def get_status_jobs(id: int, current_user: CurrentUser, db_session: AsyncSession):
+    response = await get_jobs(id=id, current_user=current_user, db_session=db_session)
     return response
 
 

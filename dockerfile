@@ -1,9 +1,9 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 RUN apt-get update && \
-apt-get install -y tesseract-ocr && \
+apt-get install -y tesseract-ocr poppler-utils && \
 rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

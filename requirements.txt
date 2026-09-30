@@ -15,6 +15,7 @@ pyjwt
 pydantic-settings
 pwdlib[argon2]
 pytesseract
+pdf2image
 aiosmtplib
 pytest
 greenlet

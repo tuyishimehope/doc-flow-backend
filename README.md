@@ -95,7 +95,7 @@ Errors move the request to `FAILED`. `CANCELLED` exists in the data model, but t
 - An OpenAI API key with access to the configured model
 - SMTP credentials if you want to test password-reset email delivery
 
-The included Dockerfile currently uses Python 3.10, while parts of the source require Python 3.12 syntax. Until the image is updated, use Docker Compose for the supporting services and run the API and worker in a local Python 3.12+ environment.
+The Docker image uses Python 3.12 and installs Tesseract and Poppler for OCR. For local development, install those system tools on the host as well.
 
 ### 1. Create the environment
 
@@ -108,15 +108,15 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Install Tesseract if it is not already available:
+Install Tesseract and Poppler if they are not already available:
 
 ```bash
 # macOS
-brew install tesseract
+brew install tesseract poppler
 
 # Debian / Ubuntu
 sudo apt-get update
-sudo apt-get install tesseract-ocr
+sudo apt-get install tesseract-ocr poppler-utils
 ```
 
 ### 2. Configure the application
@@ -193,6 +193,7 @@ MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin123
 MINIO_BUCKET=docflow
 MINIO_SECURE=false
+MAX_UPLOAD_SIZE_BYTES=10485760
 
 DATABASE_URL_TEST=postgresql+asyncpg://docflow_user:your_password@localhost:5432/test_docflow
 
@@ -214,7 +215,7 @@ python -c 'import secrets; print(secrets.token_hex(32))'
 
 Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must be a `host:port` value without a URL scheme.
 
-If you run the API and worker inside Compose after updating the Docker Python version, use service names instead of host addresses:
+If you run the API and worker inside Compose, use service names instead of host addresses:
 
 ```dotenv
 DATABASE_HOST=postgres
@@ -315,15 +316,13 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/documents` | Yes | List your documents |
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
 | DELETE | `/api/v1/documents/{id}` | Yes | Delete a document |
-| GET | `/api/v1/documents/{id}/jobs` | No* | List processing attempts |
+| GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
 | GET | `/api/v1/files` | Yes | List your files |
 | GET | `/api/v1/files/{id}` | Yes | Download a file |
 | DELETE | `/api/v1/files/{id}` | Yes | Soft-delete a file record |
 | GET | `/api/v1/processing-requests/{id}` | Yes | Get a processing request |
 | GET | `/api/v1/processing-requests/status/{id}` | Yes | Get processing status |
 | GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
-
-`*` The jobs endpoint currently has no authentication dependency. Treat this as an implementation gap, not the intended security policy.
 
 Collection endpoints use `skip` and `limit`. Documents and files cap both at 50; users cap both at 100. The documents endpoint requires `limit` to be at least 2.
 
@@ -361,7 +360,7 @@ tests/                      # API tests and sample assets
 
 ### Docker Compose
 
-Once the Dockerfile uses Python 3.12 or newer, start the full development stack with:
+Start the full development stack with:
 
 ```bash
 docker compose up --build -d
@@ -407,15 +406,13 @@ Never commit `.env`, API keys, SMTP credentials, uploaded documents, or other se
 
 ## Known limitations
 
-- The Dockerfile uses Python 3.10, but the current source requires Python 3.12+ syntax.
 - The checked-in `.env.example` omits required settings and contains an unsupported `REDIS_URL` key.
 - Status and result routes require a duplicated query parameter in addition to the path ID.
 - Invoice and contract results are model-generated text, not validated structured objects.
 - The OpenAI model name is hardcoded in `app/service/openai/service.py`.
-- Scanned, image-only PDFs are not passed through OCR.
-- DOCX processing may fail because the extraction helper does not first read the MinIO response stream into bytes.
-- Celery task exceptions are caught without being re-raised, which can prevent configured automatic retries.
-- The jobs endpoint is unauthenticated and queries by processing-request ID despite being nested under a document route.
+- Uploads default to a 10 MiB maximum, configurable with `MAX_UPLOAD_SIZE_BYTES`; the MIME type and file signature or container are checked before storage.
+- PDFs without embedded text use Tesseract OCR through Poppler. Large or unusually complex PDFs can still require substantial worker memory and processing time.
+- Celery task failures are retried up to three times, and job attempts record retry and failure state.
 - Deleting a file soft-deletes its database record but does not remove its MinIO object.
 - Worker logs may include extracted document contents; review logging before handling sensitive data.
 

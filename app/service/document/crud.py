@@ -1,4 +1,4 @@
-from sqlalchemy import Select, func
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schema import Document, Extracted_Result, File, Processing_Request, Processing_Job, User
@@ -106,9 +106,20 @@ async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: 
 
 
 
-async def get_jobs(id: int, db_session: AsyncSession) -> list[Processing_Job]:
-    stmt = Select(Processing_Job).where(
-        Processing_Job.processing_request_id == id)
+async def get_jobs(id: int, current_user: CurrentUser, db_session: AsyncSession) -> list[Processing_Job] | None:
+    owned_document = await db_session.execute(
+        select(Document.id).where(
+            Document.id == id,
+            Document.user_id == current_user.id,
+        )
+    )
+    if owned_document.scalar_one_or_none() is None:
+        return None
+
+    stmt = select(Processing_Job).join(Processing_Request).join(Document).where(
+        Processing_Request.document_id == id,
+        Document.user_id == current_user.id,
+    )
     processing_job_record = await db_session.execute(stmt)
     result = processing_job_record.scalars().all()
     return list(result)
