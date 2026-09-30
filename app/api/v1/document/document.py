@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.dependencies import get_db_session
 from app.service.document.crud import get_total_no_of_documents
 from app.service.document.document import delete_document, get_document, get_documents, get_status_jobs, process_document
-from app.service.document.schema import PaginatedDocumentResponse, Processing_Type, DocumentResponse
+from app.service.document.schema import DocumentProcessingResponse, PaginatedDocumentResponse, Processing_Type, DocumentResponse, ProcessingJobResponse
 from app.utils.document import valid_type_document, validate_document_content
 from app.service.auth.auth import CurrentUser
 from app.core.config import settings
@@ -12,7 +12,7 @@ from app.core.config import settings
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=DocumentProcessingResponse)
 async def post_document_endpoint(file: UploadFile, current_user: CurrentUser, processing_type: Processing_Type = Body(), instructions: str = Body(), db_session: AsyncSession = Depends(get_db_session)):
     result = valid_type_document(file=file)
     if not result:
@@ -75,7 +75,7 @@ async def delete_document_endpoint(current_user: CurrentUser, id: int, db_sessio
                         detail="Document Not Found")
 
 
-@router.get("/{id}/jobs")
+@router.get("/{id}/jobs", response_model=list[ProcessingJobResponse])
 async def get_status_jobs_endpoint(id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
     response = await get_status_jobs(id=id, current_user=current_user, db_session=db_session)
     if response is not None:

@@ -9,7 +9,7 @@ from sqlalchemy import delete as sql_delete
 
 from app.service.auth.auth import create_user, delete_user_by_id, generate_reset_token, get_all_users, hash_password, hash_reset_token, update_user
 from app.db.dependencies import get_db_session
-from app.service.auth.schema import ChangePasswordRequest, CreateUserRequest, ForgotPasswordRequest, PaginatedUserResponse, ResetPasswordRequest, UserResponse, UserUpdate
+from app.service.auth.schema import ChangePasswordRequest, CreateUserRequest, ForgotPasswordRequest, MessageResponse, PaginatedUserResponse, ResetPasswordRequest, UserResponse, UserUpdate
 from app.service.auth.auth import create_access_token, verify_password
 from app.service.auth.schema import Token
 from app.models import schema
@@ -71,7 +71,7 @@ async def get_current_user(
     return current_user
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED)
+@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
 async def signup(user: CreateUserRequest, db_session: AsyncSession = Depends(get_db_session)):
     result = await create_user(db_session=db_session, first_name=user.first_name, last_name=user.last_name, email=user.email, password=user.password)
 
@@ -98,7 +98,7 @@ async def get_all(current_user: CurrentUser, db_session: Annotated[AsyncSession,
     )
 
 
-@router.patch("/{id}")
+@router.patch("/{id}", response_model=UserResponse)
 async def update_user_info(id: int, user_info: UserUpdate, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
     result = await update_user(id, user_info, current_user, db_session)
     if result is None:
@@ -107,7 +107,7 @@ async def update_user_info(id: int, user_info: UserUpdate, current_user: Current
     return result
 
 
-@router.delete("/{id}")
+@router.delete("/{id}", response_model=UserResponse)
 async def delete_user(id: int, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
     result = await delete_user_by_id(id, current_user, db_session)
     if result is None:
@@ -116,7 +116,7 @@ async def delete_user(id: int, current_user: CurrentUser, db_session: Annotated[
     return result
 
 
-@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED, response_model=MessageResponse)
 async def forgot_password(
     request_data: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
@@ -162,7 +162,7 @@ async def forgot_password(
     }
 
 
-@router.post("/reset-password", status_code=status.HTTP_200_OK)
+@router.post("/reset-password", status_code=status.HTTP_200_OK, response_model=MessageResponse)
 async def reset_password(
     request_data: ResetPasswordRequest,
     db: Annotated[AsyncSession, Depends(get_db_session)],
@@ -215,7 +215,7 @@ async def reset_password(
     }
 
 
-@router.patch("/me/password", status_code=status.HTTP_200_OK)
+@router.patch("/me/password", status_code=status.HTTP_200_OK, response_model=MessageResponse)
 async def change_password(
     password_data: ChangePasswordRequest,
     current_user: CurrentUser,

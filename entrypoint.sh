@@ -2,11 +2,9 @@
 
 set -e
 
-echo "Waiting for postgres..."
-
-sleep 5
-
 echo "Running migrations..."
+
+python -m app.core.wait_for_dependencies
 
 alembic upgrade head
 

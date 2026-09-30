@@ -49,6 +49,37 @@ class PaginatedDocumentResponse(BaseModel):
     has_more: bool
 
 
+class DocumentProcessingResponse(BaseModel):
+    document_id: int
+    processing_request_id: int
+    status: Processing_status
+
+
+class ProcessingStatusResponse(BaseModel):
+    id: int
+    status: Processing_status
+
+
+class ProcessingRequestResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    document_id: int
+    processing_type: Processing_Type
+    instructions: str | None
+    status: Processing_status
+    version: int
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class ProcessingJobResponse(BaseModel):
+    attempt: int
+    status: str
+    created_at: datetime | None
+    completed_at: datetime | None
+
+
 class InvoiceLineItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

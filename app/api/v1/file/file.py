@@ -8,8 +8,14 @@ from app.service.auth.auth import CurrentUser
 from app.service.file.crud import get_count
 from app.service.file.file import get_all_files, get_file_by_id, delete_file_by_id
 from app.service.file.schema import FileResponse, PaginatedFileResponse
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
+
+
+class FileDeleteResponse(BaseModel):
+    file_id: int
+    status: str
 
 
 @router.get("/{id}", status_code=status.HTTP_200_OK, summary="Get a file by id", description="You can get a file by id", responses={
@@ -21,7 +27,7 @@ router = APIRouter(prefix="/api/v1/files", tags=["files"])
 })
 async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
     """
-    Get a file by id
+    Get a file by id. The binary response may be PDF, DOCX, or an image.
 
     Args:
         id (int): id of the file
@@ -59,8 +65,9 @@ async def get_files(current_user: CurrentUser, db_session: Annotated[AsyncSessio
                                  has_more = skip + len(result) < total)
 
 
-@router.delete("/{id}")
+@router.delete("/{id}", response_model=FileDeleteResponse)
 async def delete_file(id: int, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
     result = await delete_file_by_id(id=id, current_user=current_user, db_session=db_session)
-
-    return result
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    return FileDeleteResponse(file_id=result, status="DELETED")

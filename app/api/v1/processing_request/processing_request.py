@@ -4,14 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.dependencies import get_db_session
 from app.service.auth.auth import CurrentUser
 from app.service.document.document import get_processing_request, get_processing_result, get_processing_status
-from app.service.document.schema import ProcessingResultResponse
+from app.service.document.schema import ProcessingRequestResponse, ProcessingResultResponse, ProcessingStatusResponse
 
 
 router = APIRouter(prefix="/api/v1/processing-requests",
                    tags=["processing-request"])
 
 
-@router.get("/status/{id}")
+@router.get("/status/{id}", response_model=ProcessingStatusResponse)
 async def get_status_endpoint(
     id: int,
     current_user: CurrentUser,
@@ -45,7 +45,7 @@ async def get_result_endpoint(
     return result
 
 
-@router.get("/{id}")
+@router.get("/{id}", response_model=ProcessingRequestResponse)
 async def get_processing_request_endpoint(id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
     response = await get_processing_request(id=id, current_user=current_user, db_session=db_session)
     if response is not None:

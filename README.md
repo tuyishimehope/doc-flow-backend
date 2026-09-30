@@ -375,7 +375,7 @@ docker compose up --build -d
 docker compose logs -f api worker
 ```
 
-The API entrypoint applies migrations before starting Uvicorn. Compose currently has no readiness checks, so the API may need `docker compose restart api` if PostgreSQL is still starting.
+The API entrypoint waits for PostgreSQL, Redis, and MinIO before applying migrations and starting Uvicorn. Compose also gates the API and worker on PostgreSQL and Redis health. The wait is bounded by `DEPENDENCY_STARTUP_TIMEOUT_SECONDS` (60 seconds by default).
 
 Use `docker compose down` to stop the stack while preserving data. Adding `--volumes` removes the named PostgreSQL and MinIO volumes and their data.
 
@@ -392,7 +392,7 @@ Set `DATABASE_URL_TEST` in `.env` (or the process environment) to the isolated d
 postgresql+asyncpg://docflow_user:your_password@localhost/test_docflow
 ```
 
-The fixture now uses this setting and refuses to reset the configured application database. Keep `DATABASE_URL_TEST` pointed at a separate database dedicated to tests, and provision that database and user before running the suite. The Compose database is published on host port 5433; the example test URL uses port 5432, so adjust it if you use the Compose instance.
+The fixture now uses this setting and refuses to reset the configured application database. Keep `DATABASE_URL_TEST` pointed at a separate database dedicated to tests, and provision that database and user before running the suite. The Compose database is published on host port 5433; `.env.example` uses that port and a separate `test_docflow` database.
 
 ```bash
 python -m pytest -q
@@ -414,7 +414,7 @@ Never commit `.env`, API keys, SMTP credentials, uploaded documents, or other se
 
 ## Known limitations
 
-- The checked-in `.env.example` omits required settings and contains an unsupported `REDIS_URL` key.
+- The sample `.env.example` documents the required application settings; replace its placeholder secrets and credentials before deploying.
 - The OpenAI call is bounded by configurable input-character and output-token limits, but those limits do not guarantee a fixed monetary cost.
 - Uploads default to a 10 MiB maximum, configurable with `MAX_UPLOAD_SIZE_BYTES`; the MIME type and file signature or container are checked before storage.
 - PDFs without embedded text use Tesseract OCR through Poppler. Large or unusually complex PDFs can still require substantial worker memory and processing time.

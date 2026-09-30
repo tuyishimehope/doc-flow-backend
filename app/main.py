@@ -1,4 +1,3 @@
-import os
 import logging
 from contextlib import asynccontextmanager
 
@@ -11,7 +10,9 @@ from app.api.v1.auth.auth import router as auth_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
 from app.db.engine import engine
 from app.core.minio import minio_client
+from app.core.config import settings
 from app.core.logging_config import configure_logging
+from app.core.wait_for_dependencies import wait_for_dependencies
 
 
 logger = logging.getLogger(__name__)
@@ -26,12 +27,13 @@ class StartResponse(BaseModel):
 
 @asynccontextmanager    
 async def lifespan(app: FastAPI):
+    await wait_for_dependencies()
     logger.info("Checking DB connection")
 
     async with engine.connect() as conn:
         logger.info("Database connected")
 
-    bucket_name = os.getenv("MINIO_BUCKET", "")
+    bucket_name = settings.MINIO_BUCKET
 
     if not minio_client.bucket_exists(bucket_name):
         minio_client.make_bucket(bucket_name)

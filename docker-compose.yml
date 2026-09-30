@@ -9,9 +9,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - postgres
-      - redis
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
     volumes:
       - .:/app
 
@@ -22,8 +25,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - redis
-      - postgres
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
     volumes:
       - .:/app
 
@@ -39,6 +46,11 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d docflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   redis:
     image: redis:7
@@ -46,6 +58,11 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   minio:
     image: minio/minio

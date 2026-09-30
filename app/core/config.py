@@ -1,9 +1,13 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env",env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
     
     secret_key: SecretStr
     algorithm: str = "HS256"
@@ -34,6 +38,7 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool
 
     MAX_UPLOAD_SIZE_BYTES: int = Field(default=10 * 1024 * 1024, gt=0)
+    DEPENDENCY_STARTUP_TIMEOUT_SECONDS: int = Field(default=60, gt=0)
 
     DATABASE_URL_TEST: str
 
@@ -50,4 +55,16 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:8000"
     
     
-settings = Settings() #type: ignore[call-arg]
+def load_settings() -> Settings:
+    try:
+        return Settings()
+    except ValidationError as exc:
+        fields = sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()})
+        details = ", ".join(fields)
+        raise RuntimeError(
+            "Application configuration is invalid. Check the required values in .env; "
+            f"missing or invalid settings: {details}"
+        ) from None
+
+
+settings = load_settings()
