@@ -3,8 +3,8 @@ import logging
 import secrets
 from datetime import timezone, datetime, timedelta
 from typing import Annotated
-from alembic.util import status
-from fastapi import Depends, HTTPException
+
+from fastapi import Depends, HTTPException, status
 import jwt
 from pwdlib import PasswordHash
 from fastapi.security import OAuth2PasswordBearer
@@ -17,7 +17,7 @@ from app.db.dependencies import get_db_session
 from app.service.auth.schema import LoginRequest, UserUpdate
 from app.core.config import settings
 from app.models.schema import User
-from app.service.auth.crud import get_count_users, get_user_by_email, get_users
+from app.service.auth.crud import get_user_by_email
 
 
 password_hash = PasswordHash.recommended()
@@ -126,7 +126,7 @@ async def get_current_user(
         )
 
     result = await db.execute(
-        Select(User).where(User.id == user_id_int),
+        Select(User).where(User.id == user_id_int, User.deleted_at.is_(None)),
     )
     user = result.scalars().first()
     if not user:
@@ -139,11 +139,6 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
-
-
-async def get_all_users(limit: int, skip: int, db_session: AsyncSession) -> list[User]:
-    users = await get_users(limit, skip, db_session)
-    return users
 
 
 async def update_user(
@@ -163,7 +158,17 @@ async def update_user(
     if user is None:
         return None
 
-    update_data = user_info.model_dump(exclude_unset=True)
+    # All profile columns are non-nullable, so an explicit null means "leave as is".
+    update_data = user_info.model_dump(exclude_unset=True, exclude_none=True)
+
+    if "email" in update_data:
+        update_data["email"] = update_data["email"].lower()
+        existing = await get_user_by_email(update_data["email"], db_session)
+        if existing is not None and existing.id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already exists",
+            )
 
     for field, value in update_data.items():
         setattr(user, field, value)
@@ -189,5 +194,8 @@ async def delete_user_by_id(id: int,
     if user is None:
         return None
 
-    user.deleted_at = datetime.now(timezone.utc)
+    # deleted_at is a naive column, matching the document and file tombstones.
+    user.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await db_session.commit()
+    await db_session.refresh(user)
+    return user

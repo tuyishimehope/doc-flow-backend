@@ -103,6 +103,7 @@ async def get_all_documents(skip: int, limit: int, db_session: AsyncSession, use
             Document.deleted_at.is_(None),
             Document.status != Document_Status.DELETED,
         )
+        .order_by(Document.created_at.desc(), Document.id.desc())
         .offset(skip)
         .limit(limit)
     )
@@ -144,6 +145,8 @@ async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: 
     except Exception:
         await db_session.rollback()
         raise
+    # updated_at is set by the database, so reload it before the response reads it.
+    await db_session.refresh(document)
 
     try:
         delete_file(document.file_id)
@@ -180,6 +183,20 @@ async def get_jobs(id: int, current_user: CurrentUser, db_session: AsyncSession)
     processing_job_record = await db_session.execute(stmt)
     result = processing_job_record.scalars().all()
     return list(result)
+
+
+async def get_processing_requests_by_document(id: int, current_user: CurrentUser, db_session: AsyncSession) -> list[Processing_Request] | None:
+    document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
+    if document is None:
+        return None
+
+    stmt = (
+        select(Processing_Request)
+        .where(Processing_Request.document_id == id)
+        .order_by(Processing_Request.created_at.desc(), Processing_Request.id.desc())
+    )
+    result = await db_session.execute(stmt)
+    return list(result.scalars().all())
 
 
 async def get_processing_request_by_id(id: int, current_user: CurrentUser, db_session: AsyncSession):

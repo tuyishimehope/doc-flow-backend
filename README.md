@@ -209,6 +209,7 @@ mail_password=
 mail_from=noreply@example.com
 mail_use_tls=true
 frontend_url=http://localhost:3000
+cors_origins=["http://localhost:3000"]
 ```
 
 Generate a signing secret with:
@@ -314,7 +315,6 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/users/signup` | No | Register a user |
 | POST | `/api/v1/users/token` | No | Obtain an access token |
 | GET | `/api/v1/users/me` | Yes | Get the current user |
-| GET | `/api/v1/users/` | Yes | List users |
 | PATCH | `/api/v1/users/{id}` | Yes | Update your profile |
 | DELETE | `/api/v1/users/{id}` | Yes | Delete your account |
 | POST | `/api/v1/users/forgot-password` | No | Request a reset email |
@@ -325,6 +325,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
 | DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document and remove its stored file |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
+| GET | `/api/v1/documents/{id}/processing-requests` | Yes | List a document's processing requests, newest first |
 | GET | `/api/v1/files` | Yes | List your files |
 | GET | `/api/v1/files/{id}` | Yes | Download a file |
 | DELETE | `/api/v1/files/{id}` | Yes | Soft-delete its file and parent document, then remove the stored object |
@@ -332,7 +333,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/processing-requests/status/{id}` | Yes | Get processing status |
 | GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
 
-Collection endpoints use `skip` and `limit`. Documents and files cap both at 50; users cap both at 100. The documents endpoint requires `limit` to be at least 2.
+Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
 
 ## Development
 

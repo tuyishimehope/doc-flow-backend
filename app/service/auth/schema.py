@@ -31,15 +31,6 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: datetime
     
-class PaginatedUserResponse(BaseModel):
-    users: list[UserResponse]
-    total: int
-    skip: int
-    limit: int
-    has_more: bool
-    
-
-
 class Token(BaseModel):
     access_token: str
     token_type: str

@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, UploadFile, HTTPException, status, Body,
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.dependencies import get_db_session
-from app.service.document.crud import get_total_no_of_documents
+from app.service.document.crud import get_processing_requests_by_document, get_total_no_of_documents
 from app.service.document.document import delete_document, get_document, get_documents, get_status_jobs, process_document
-from app.service.document.schema import DocumentProcessingResponse, PaginatedDocumentResponse, Processing_Type, DocumentResponse, ProcessingJobResponse
+from app.service.document.schema import DocumentProcessingResponse, PaginatedDocumentResponse, Processing_Type, DocumentResponse, ProcessingJobResponse, ProcessingRequestResponse
 from app.utils.document import valid_type_document, validate_document_content
 from app.service.auth.auth import CurrentUser
 from app.core.config import settings
@@ -50,7 +50,7 @@ async def get_document_endpoint(id: int, current_user: CurrentUser, db_session: 
 
 
 @router.get("", response_model=PaginatedDocumentResponse)
-async def get_documents_endpoint(current_user: CurrentUser, skip: int = Query(default=0, ge=0, le=50, title="skip page", description="The items to skip "), limit: int = Query(default=10, title="limit", description="limit of items per page", gt=1, le=50),  db_session: AsyncSession = Depends(get_db_session)):
+async def get_documents_endpoint(current_user: CurrentUser, skip: int = Query(default=0, ge=0, title="skip page", description="The items to skip "), limit: int = Query(default=10, title="limit", description="limit of items per page", ge=1, le=50),  db_session: AsyncSession = Depends(get_db_session)):
     if current_user is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Not authorized to view document")
@@ -82,3 +82,12 @@ async def get_status_jobs_endpoint(id: int, current_user: CurrentUser, db_sessio
         return [{"attempt": data.attempt_number, "status": data.status, "created_at": data.started_at, "completed_at": data.completed_at} for data in response]
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+
+@router.get("/{id}/processing-requests", response_model=list[ProcessingRequestResponse])
+async def get_processing_requests_endpoint(id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
+    response = await get_processing_requests_by_document(id=id, current_user=current_user, db_session=db_session)
+    if response is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Document Not Found")
+    return response

@@ -65,15 +65,6 @@ async def test_signup_failed(client: AsyncClient):
     assert response.json()["detail"] == "Email already exists"
     
 @pytest.mark.anyio
-async def test_get_all_users(client: AsyncClient, auth_headers: dict[str, str]):
-    response = await client.get(f"{api}/", headers=auth_headers)
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert "users" in data
-    
-
-@pytest.mark.anyio
 async def test_update_user_info(client: AsyncClient, auth_headers: dict[str, str]):
     
     first_response = await client.get(f"{api}/me", headers=auth_headers)
