@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
 
     OPENAI_API_KEY: str
+    OPENAI_MODEL: str = "gpt-5.5"
+    OPENAI_TIMEOUT_SECONDS: float = Field(default=45, gt=0)
+    OPENAI_MAX_INPUT_CHARS: int = Field(default=100_000, gt=0)
+    OPENAI_MAX_OUTPUT_TOKENS: int = Field(default=2_048, gt=0)
 
     DATABASE_NAME: str
     DATABASE_PASSWORD: str

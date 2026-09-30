@@ -101,7 +101,7 @@ class Extracted_Result(Base):
     )
     result_type: Mapped[str] = mapped_column(String(100), nullable=False)
     content_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False)

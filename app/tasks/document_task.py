@@ -6,6 +6,7 @@ from io import BytesIO
 from sqlalchemy import Select
 
 from app.db.session import SyncSession
+from app.core.config import settings
 from app.models.schema import (
     Document,
     Extracted_Result,
@@ -37,11 +38,24 @@ logger = logging.getLogger(__name__)
     retry_kwargs={"max_retries": 3},
 )
 def start_processing(self, processing_request_id: int):
-    logger.info("Starting processing request %s", processing_request_id)
+    logger.info(
+        "Starting document processing",
+        extra={
+            "processing_request_id": processing_request_id,
+            "celery_task_id": getattr(self.request, "id", None),
+        },
+    )
     try:
         asyncio.run(process_document(self, processing_request_id))
     except Exception:
-        logger.exception("Processing request %s failed", processing_request_id)
+        logger.exception(
+            "Document processing task failed",
+            extra={
+                "processing_request_id": processing_request_id,
+                "celery_task_id": getattr(self.request, "id", None),
+                "attempt_number": self.request.retries + 1,
+            },
+        )
         # Let Celery's autoretry handler observe the failure.
         raise
 
@@ -104,26 +118,47 @@ async def process_document(self, processing_request_id: int):
             db_session.commit()
             return
 
+        if len(extracted_content) > settings.OPENAI_MAX_INPUT_CHARS:
+            processing_request.status = Processing_status.FAILED
+            job.status = Processing_Job_Status.FAILED
+            job.failure_reason = (
+                f"Extracted text exceeds the configured {settings.OPENAI_MAX_INPUT_CHARS} character limit"
+            )
+            job.completed_at = datetime.now()
+            db_session.commit()
+            logger.warning(
+                "Document text exceeded AI input limit",
+                extra={
+                    "processing_request_id": processing_request_id,
+                    "character_count": len(extracted_content),
+                    "character_limit": settings.OPENAI_MAX_INPUT_CHARS,
+                },
+            )
+            return
+
         service = OpenaiService()
-        if processing_request.processing_type == Processing_Type.DOCUMENT_SUMMARY:
-            result = await service.generate_summary(
-                content=extracted_content,
-                instructions=processing_request.instructions or "",
-            )
-        elif processing_request.processing_type == Processing_Type.INVOICE_EXTRACTION:
-            result = await service.get_invoice_metadata(
-                content=extracted_content,
-                instructions=processing_request.instructions or "",
-            )
-        elif processing_request.processing_type == Processing_Type.CONTRACT_METADATA:
-            result = await service.get_contract_metadata(
-                content=extracted_content,
-                instructions=processing_request.instructions or "",
-            )
-        else:
-            raise ValueError(
-                f"Unsupported processing type: {processing_request.processing_type}"
-            )
+        try:
+            if processing_request.processing_type == Processing_Type.DOCUMENT_SUMMARY:
+                result = await service.generate_summary(
+                    content=extracted_content,
+                    instructions=processing_request.instructions or "",
+                )
+            elif processing_request.processing_type == Processing_Type.INVOICE_EXTRACTION:
+                result = await service.get_invoice_metadata(
+                    content=extracted_content,
+                    instructions=processing_request.instructions or "",
+                )
+            elif processing_request.processing_type == Processing_Type.CONTRACT_METADATA:
+                result = await service.get_contract_metadata(
+                    content=extracted_content,
+                    instructions=processing_request.instructions or "",
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported processing type: {processing_request.processing_type}"
+                )
+        finally:
+            await service.close()
 
         if not result:
             raise RuntimeError("AI processing returned an empty result")
@@ -132,8 +167,8 @@ async def process_document(self, processing_request_id: int):
             Extracted_Result(
                 processing_request_id=processing_request.id,
                 result_type=processing_request.processing_type.value,
-                content_json={"result": result},
-                confidence_score=1.0,
+                content_json={"result": result, "confidence_score": None},
+                confidence_score=None,
             )
         )
         processing_request.status = Processing_status.COMPLETED

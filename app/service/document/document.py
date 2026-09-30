@@ -1,5 +1,6 @@
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 
 
 from app.service.auth.auth import CurrentUser
@@ -10,6 +11,8 @@ from app.service.document.schema import Processing_status, Processing_Type
 from app.service.file.file import post_file, get_file, delete_file
 from app.service.document.crud import delete_document_by_id, get_all_documents, get_document_by_id, get_jobs, get_processing_request_result, get_processing_request_status, save_document, save_file, save_processing_request, get_total_no_of_documents, get_processing_request_by_id
 from app.service.auth.crud import get_user_by_id
+
+logger = logging.getLogger(__name__)
 
 
 async def process_document(id: int, file: UploadFile, processing_type: Processing_Type, instructions: str, db_session: AsyncSession):
@@ -45,9 +48,22 @@ async def process_document(id: int, file: UploadFile, processing_type: Processin
             await db_session.commit()
             raise
 
+        logger.info(
+            "Document processing request queued",
+            extra={
+                "document_id": document_object.id,
+                "processing_request_id": processing_request_object.id,
+                "user_id": user.id,
+            },
+        )
+
         return {"document_id": document_object.id, "processing_request_id": processing_request_object.id, "status": processing_request_object.status}
     except Exception:
         await db_session.rollback()
+        logger.exception(
+            "Document upload or queueing failed",
+            extra={"user_id": id, "stored_file_id": stored_object_id},
+        )
         if stored_object_id is not None:
             try:
                 delete_file(int(stored_object_id))

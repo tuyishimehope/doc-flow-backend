@@ -181,6 +181,10 @@ access_token_expire_minutes=30
 broker_host=redis://localhost:6379/0
 broker_backend=redis://localhost:6379/1
 OPENAI_API_KEY=replace-with-your-api-key
+OPENAI_MODEL=gpt-5.5
+OPENAI_TIMEOUT_SECONDS=45
+OPENAI_MAX_INPUT_CHARS=100000
+OPENAI_MAX_OUTPUT_TOKENS=2048
 
 DATABASE_NAME=docflow
 DATABASE_USER=postgres
@@ -214,6 +218,8 @@ python -c 'import secrets; print(secrets.token_hex(32))'
 ```
 
 Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must be a `host:port` value without a URL scheme.
+
+`OPENAI_MODEL` selects the model, `OPENAI_TIMEOUT_SECONDS` bounds each API request, `OPENAI_MAX_INPUT_CHARS` limits extracted document text sent for processing, and `OPENAI_MAX_OUTPUT_TOKENS` caps generated output. The character and token limits help control request size but do not impose a fixed billing ceiling.
 
 If you run the API and worker inside Compose, use service names instead of host addresses:
 
@@ -270,18 +276,20 @@ Valid processing modes are `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRA
 
 ### Check status and retrieve the result
 
-The current handlers require the processing request ID in both the path and the `processing_request_id` query parameter:
+Use the processing request ID returned by upload in the route path:
 
 ```bash
 REQUEST_ID=1
-curl "http://localhost:8000/api/v1/processing-requests/status/$REQUEST_ID?processing_request_id=$REQUEST_ID" \
+curl "http://localhost:8000/api/v1/processing-requests/status/$REQUEST_ID" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/api/v1/processing-requests/result/$REQUEST_ID?processing_request_id=$REQUEST_ID" \
+curl "http://localhost:8000/api/v1/processing-requests/result/$REQUEST_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Result responses currently use the shape `{"result":"model output"}`. A result that is not available returns `404`.
+Summary results contain a text string. Invoice results use a validated object with invoice dates, parties, currency, totals, and line items; contract results use a validated object with parties, dates, governing law, renewal and termination terms, and obligations. Responses include `confidence_score: null` because the model does not provide a calibrated confidence measure. A result that is not available returns `404`.
+
+For example, an invoice response is shaped like `{"result":{"invoice_number":"INV-001","invoice_date":"2026-04-15","due_date":null,"vendor_name":"Example Ltd","customer_name":"Buyer Inc","currency":"USD","subtotal":100,"tax":10,"total":110,"line_items":[]},"confidence_score":null}`. Missing scalar fields are represented as `null`; missing collections are empty arrays.
 
 ### Download the original file
 
@@ -315,11 +323,11 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/documents` | Yes | Upload and enqueue a document |
 | GET | `/api/v1/documents` | Yes | List your documents |
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
-| DELETE | `/api/v1/documents/{id}` | Yes | Delete a document |
+| DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document and remove its stored file |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
 | GET | `/api/v1/files` | Yes | List your files |
 | GET | `/api/v1/files/{id}` | Yes | Download a file |
-| DELETE | `/api/v1/files/{id}` | Yes | Soft-delete a file record |
+| DELETE | `/api/v1/files/{id}` | Yes | Soft-delete its file and parent document, then remove the stored object |
 | GET | `/api/v1/processing-requests/{id}` | Yes | Get a processing request |
 | GET | `/api/v1/processing-requests/status/{id}` | Yes | Get processing status |
 | GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
@@ -378,13 +386,13 @@ The tests use pytest, HTTPX, AnyIO, and a real PostgreSQL test database. MinIO c
 > [!WARNING]
 > Use an isolated test database. The fixture creates and drops all application tables.
 
-The current fixture hardcodes this connection instead of reading `DATABASE_URL_TEST`:
+Set `DATABASE_URL_TEST` in `.env` (or the process environment) to the isolated database used by the fixture:
 
 ```text
 postgresql+asyncpg://docflow_user:your_password@localhost/test_docflow
 ```
 
-It expects PostgreSQL on port 5432, whereas the Compose database is published on port 5433. Provision that dedicated database and user, or update `tests/conftest.py` for your isolated test server.
+The fixture now uses this setting and refuses to reset the configured application database. Keep `DATABASE_URL_TEST` pointed at a separate database dedicated to tests, and provision that database and user before running the suite. The Compose database is published on host port 5433; the example test URL uses port 5432, so adjust it if you use the Compose instance.
 
 ```bash
 python -m pytest -q
@@ -407,14 +415,11 @@ Never commit `.env`, API keys, SMTP credentials, uploaded documents, or other se
 ## Known limitations
 
 - The checked-in `.env.example` omits required settings and contains an unsupported `REDIS_URL` key.
-- Status and result routes require a duplicated query parameter in addition to the path ID.
-- Invoice and contract results are model-generated text, not validated structured objects.
-- The OpenAI model name is hardcoded in `app/service/openai/service.py`.
+- The OpenAI call is bounded by configurable input-character and output-token limits, but those limits do not guarantee a fixed monetary cost.
 - Uploads default to a 10 MiB maximum, configurable with `MAX_UPLOAD_SIZE_BYTES`; the MIME type and file signature or container are checked before storage.
 - PDFs without embedded text use Tesseract OCR through Poppler. Large or unusually complex PDFs can still require substantial worker memory and processing time.
 - Celery task failures are retried up to three times, and job attempts record retry and failure state.
-- Deleting a file soft-deletes its database record but does not remove its MinIO object.
-- Worker logs may include extracted document contents; review logging before handling sensitive data.
+- Worker logs include document, request, task, and attempt identifiers but omit extracted document text.
 
 ## License
 

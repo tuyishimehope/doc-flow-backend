@@ -68,7 +68,6 @@ async def delete_document_endpoint(current_user: CurrentUser, id: int, db_sessio
                             detail="Not authorized to view document")
 
     document = await delete_document(id=id, db_session=db_session, current_user=current_user)
-    print("document", document)
     if document is not None:
         return DocumentResponse(id=document.id, name=document.name, status=document.status, file_id=document.file_id, user_id=document.user_id, created_at=document.created_at, updated_at=document.updated_at)
 

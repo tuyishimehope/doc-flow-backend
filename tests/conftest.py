@@ -1,35 +1,43 @@
-from app.main import app
-from app.db.dependencies import get_db_session
-# from app.db.base import Base as s
-from app.db.base_class import Base
-from sqlalchemy.pool import NullPool
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from httpx import ASGITransport, AsyncClient
-import pytest
 import os
 from collections.abc import AsyncGenerator
 from unittest.mock import patch
 
-os.environ["DATABASE_URL_TEST"] = (
-    "postgresql+asyncpg://docflow_user:your_password@localhost/test_docflow"
-)
-os.environ["S3_BUCKET_NAME"] = "test-bucket"
-os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
-
-os.environ["S3_ACCESS_KEY_ID"] = "testing"
-os.environ["S3_SECRET_ACCESS_KEY"] = "testing"
-os.environ["S3_REGION"] = "us-east-1"
-
-os.environ["AWS_ACCESS_KEY_ID"] = "testing"
-os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
-
-
+# Set test credentials before importing app settings, while preserving the
+# caller's DATABASE_URL_TEST so the test database is explicitly configured.
+os.environ["secret_key"] = "test-secret-key-for-testing-only"
 os.environ["MINIO_ENDPOINT"] = "localhost:9000"
 os.environ["MINIO_ACCESS_KEY"] = "minioadmin"
 os.environ["MINIO_SECRET_KEY"] = "minioadmin"
 os.environ["MINIO_BUCKET"] = "test-bucket"
 os.environ["MINIO_SECURE"] = "false"
+
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+from httpx import ASGITransport, AsyncClient
+import pytest
+
+from app.core.config import settings
+from app.main import app
+from app.db.dependencies import get_db_session
+from app.db.base_class import Base
+
+
+TEST_DATABASE_URL = settings.DATABASE_URL_TEST
+test_database_name = make_url(TEST_DATABASE_URL).database or ""
+test_database_name_is_marked = (
+    test_database_name == "test"
+    or test_database_name.startswith("test_")
+    or test_database_name.endswith("_test")
+)
+if not test_database_name or (
+    not test_database_name_is_marked
+    and test_database_name == settings.DATABASE_NAME
+):
+    raise RuntimeError(
+        "Refusing to reset the application database. Set DATABASE_URL_TEST "
+        "to a separate database dedicated to tests."
+    )
 
 
 pytest_plugins = ["anyio"]
@@ -43,7 +51,7 @@ def anyio_backend():
 @pytest.fixture(scope="session")
 def test_engine():
     engine = create_async_engine(
-        os.environ["DATABASE_URL_TEST"],
+        TEST_DATABASE_URL,
         poolclass=NullPool,
     )
     return engine

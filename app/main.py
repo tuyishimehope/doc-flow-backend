@@ -11,9 +11,11 @@ from app.api.v1.auth.auth import router as auth_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
 from app.db.engine import engine
 from app.core.minio import minio_client
+from app.core.logging_config import configure_logging
 
 
 logger = logging.getLogger(__name__)
+configure_logging()
 
 
 class StartResponse(BaseModel):

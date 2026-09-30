@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from datetime import timezone, datetime, timedelta
 from typing import Annotated
@@ -20,6 +21,7 @@ from app.service.auth.crud import get_count_users, get_user_by_email, get_users
 
 
 password_hash = PasswordHash.recommended()
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/users/token")
 
@@ -96,10 +98,10 @@ async def create_user(first_name: str, last_name: str, email: str, password: str
         await db_session.commit()
         await db_session.refresh(user)
         return user
-    except Exception as e:
-        print(e)
+    except Exception:
+        logger.exception("User creation failed")
         await db_session.rollback()
-        raise e
+        raise
 
 
 async def get_current_user(

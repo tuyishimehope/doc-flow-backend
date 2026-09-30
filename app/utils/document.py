@@ -1,10 +1,13 @@
 import io
+import logging
 from pathlib import Path
 
 from fastapi import UploadFile
 from PIL import Image, ImageOps
 from PIL import UnidentifiedImageError
 import pytesseract
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -111,7 +114,10 @@ def extract_text_from_image(file_stream) -> str:
         image = Image.open(io.BytesIO(file_stream))
         image = ImageOps.exif_transpose(image)
         image = ImageOps.grayscale(image)
-        print("image", image)
+        logger.debug(
+            "Image prepared for OCR",
+            extra={"image_width": image.width, "image_height": image.height},
+        )
         return pytesseract.image_to_string(image)
 
     except UnidentifiedImageError:
