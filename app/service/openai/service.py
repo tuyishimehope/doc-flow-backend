@@ -73,5 +73,5 @@ class OpenaiService:
         )
         parsed = response.output_parsed
         if parsed is None:
-            raise ValueError(f"OpenAI returned no structured {format_name} result")
+            raise RuntimeError(f"OpenAI returned no structured {format_name} result")
         return parsed.model_dump(mode="json")

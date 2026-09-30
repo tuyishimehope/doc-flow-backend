@@ -15,10 +15,17 @@ from app.service.auth.schema import Token
 from app.models import schema
 from app.service.auth.auth import CurrentUser
 from app.core.config import settings
+from app.core.rate_limit import check_rate_limit
 from app.utils.email_utils import send_password_reset_email
 
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
+
+# Keyed by email so users sharing an IP (office, proxy) do not throttle each other.
+LOGIN_ATTEMPTS_PER_WINDOW = 10
+LOGIN_WINDOW_SECONDS = 5 * 60
+RESET_EMAILS_PER_WINDOW = 3
+RESET_WINDOW_SECONDS = 15 * 60
 
 
 @router.post("/token", response_model=Token)
@@ -26,6 +33,9 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
+    await check_rate_limit(
+        f"login:{form_data.username.lower()}", LOGIN_ATTEMPTS_PER_WINDOW, LOGIN_WINDOW_SECONDS)
+
     # Look up user by email (case-insensitive)
     # Note: OAuth2PasswordRequestForm uses "username" field, but we treat it as email
     result = await db.execute(
@@ -97,6 +107,9 @@ async def forgot_password(
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
+    await check_rate_limit(
+        f"forgot-password:{request_data.email.lower()}", RESET_EMAILS_PER_WINDOW, RESET_WINDOW_SECONDS)
+
     result = await db.execute(
         select(schema.User).where(
             func.lower(schema.User.email) == request_data.email.lower(),

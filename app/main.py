@@ -1,7 +1,8 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -13,7 +14,7 @@ from app.db.engine import engine
 from app.core.minio import minio_client
 from app.core.config import settings
 from app.core.logging_config import configure_logging
-from app.core.wait_for_dependencies import wait_for_dependencies
+from app.core.wait_for_dependencies import check_database, check_minio, check_redis, wait_for_dependencies
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,14 @@ class StartResponse(BaseModel):
     status: str
     service: str
     message: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    checks: dict[str, str]
+
+
+HEALTH_CHECK_TIMEOUT_SECONDS = 3
 
 
 @asynccontextmanager    
@@ -74,6 +83,26 @@ def start():
     )
 
 
-@app.get("/health", response_model=StartResponse)
-def health():
-    return start()
+@app.get("/health", response_model=HealthResponse)
+async def health(response: Response):
+    checks = {
+        "database": check_database(),
+        "redis": asyncio.to_thread(check_redis),
+        "storage": asyncio.to_thread(check_minio),
+    }
+    outcomes = await asyncio.gather(
+        *(asyncio.wait_for(check, HEALTH_CHECK_TIMEOUT_SECONDS) for check in checks.values()),
+        return_exceptions=True,
+    )
+    results = {}
+    for name, outcome in zip(checks, outcomes):
+        if isinstance(outcome, BaseException):
+            logger.warning("Health check failed", extra={"dependency": name, "error": repr(outcome)})
+            results[name] = "error"
+        else:
+            results[name] = "ok"
+
+    healthy = all(result == "ok" for result in results.values())
+    if not healthy:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return HealthResponse(status="ok" if healthy else "degraded", checks=results)

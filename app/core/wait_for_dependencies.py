@@ -14,15 +14,20 @@ from app.db.engine import engine
 logger = logging.getLogger(__name__)
 
 
-def _check_redis() -> None:
-    client = redis.Redis.from_url(settings.broker_host, socket_timeout=2)
+async def check_database() -> None:
+    async with engine.connect() as connection:
+        await connection.execute(text("SELECT 1"))
+
+
+def check_redis() -> None:
+    client = redis.Redis.from_url(settings.broker_host, socket_connect_timeout=2, socket_timeout=2)
     try:
         client.ping()
     finally:
         client.close()
 
 
-def _check_minio() -> None:
+def check_minio() -> None:
     minio_client.bucket_exists(settings.MINIO_BUCKET)
 
 
@@ -33,22 +38,21 @@ async def wait_for_dependencies() -> None:
     while pending and time.monotonic() < deadline:
         if "PostgreSQL" in pending:
             try:
-                async with engine.connect() as connection:
-                    await connection.execute(text("SELECT 1"))
+                await check_database()
                 pending.remove("PostgreSQL")
             except Exception:
                 pass
 
         if "Redis" in pending:
             try:
-                await asyncio.to_thread(_check_redis)
+                await asyncio.to_thread(check_redis)
                 pending.remove("Redis")
             except Exception:
                 pass
 
         if "MinIO" in pending:
             try:
-                await asyncio.to_thread(_check_minio)
+                await asyncio.to_thread(check_minio)
                 pending.remove("MinIO")
             except Exception:
                 pass

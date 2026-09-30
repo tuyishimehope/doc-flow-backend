@@ -10,6 +10,9 @@ os.environ["MINIO_ACCESS_KEY"] = "minioadmin"
 os.environ["MINIO_SECRET_KEY"] = "minioadmin"
 os.environ["MINIO_BUCKET"] = "test-bucket"
 os.environ["MINIO_SECURE"] = "false"
+# Tests run without Redis or an SMTP server.
+os.environ["rate_limit_enabled"] = "false"
+os.environ["processing_email_enabled"] = "false"
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

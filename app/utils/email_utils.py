@@ -31,6 +31,7 @@ async def send_email(
         username=settings.mail_username or None,
         password=settings.mail_password.get_secret_value() or None,
         start_tls=settings.mail_use_tls,
+        timeout=10,
     )
 
 
@@ -66,3 +67,31 @@ The {settings.app_name} Team
         plain_text=plain_text,
         html_content=html_content,
     )
+
+
+async def send_processing_finished_email(
+    to_email: str,
+    first_name: str,
+    document_name: str,
+    processing_type: str,
+    succeeded: bool,
+    failure_reason: str | None = None,
+) -> None:
+    task = processing_type.replace("_", " ").lower()
+    if succeeded:
+        subject = f"Your document is ready - {settings.app_name}"
+        outcome = f"We finished the {task} for \"{document_name}\"."
+    else:
+        subject = f"We could not process your document - {settings.app_name}"
+        outcome = f"The {task} for \"{document_name}\" failed: {failure_reason}"
+
+    plain_text = f"""Hi {first_name},
+
+{outcome}
+
+Open {settings.app_name}: {settings.frontend_url}
+
+Best regards,
+The {settings.app_name} Team
+"""
+    await send_email(to_email=to_email, subject=subject, plain_text=plain_text)

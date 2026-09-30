@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 import logging
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.models.schema import Document, Extracted_Result, File, Processing_Request, Processing_Job
 from app.service.auth.auth import CurrentUser
@@ -90,13 +91,26 @@ async def get_document_by_id(
     return response
 
 
-async def get_all_documents(skip: int, limit: int, db_session: AsyncSession, user_id: int) -> list[Document] :
+def _document_list_filters(user_id: int, q: str | None, status: Document_Status | None) -> list:
+    filters = [Document.user_id == user_id, Document.is_active()]
+    if q:
+        filters.append(Document.name.icontains(q, autoescape=True))
+    if status is not None:
+        filters.append(Document.status == status)
+    return filters
+
+
+async def get_all_documents(
+    skip: int,
+    limit: int,
+    db_session: AsyncSession,
+    user_id: int,
+    q: str | None = None,
+    status: Document_Status | None = None,
+) -> list[Document]:
     statement = (
         Select(Document)
-        .where(
-            Document.user_id == user_id,
-            Document.is_active(),
-        )
+        .where(*_document_list_filters(user_id, q, status))
         .order_by(Document.created_at.desc(), Document.id.desc())
         .offset(skip)
         .limit(limit)
@@ -106,14 +120,33 @@ async def get_all_documents(skip: int, limit: int, db_session: AsyncSession, use
     return list(response)
 
 
-async def get_total_no_of_documents(db_session: AsyncSession, user_id: int) -> int:
-    statement = Select(func.count(Document.id)).where(
-        Document.user_id == user_id,
-        Document.is_active(),
-    )
+async def get_total_no_of_documents(
+    db_session: AsyncSession,
+    user_id: int,
+    q: str | None = None,
+    status: Document_Status | None = None,
+) -> int:
+    statement = Select(func.count(Document.id)).where(*_document_list_filters(user_id, q, status))
     result = await db_session.execute(statement)
     response = result.scalar_one()
     return response
+
+
+async def update_document_status(
+    id: int,
+    status: Document_Status,
+    current_user: CurrentUser,
+    db_session: AsyncSession,
+) -> Document | None:
+    document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
+    if document is None:
+        return None
+
+    document.status = status
+    await db_session.commit()
+    # updated_at is set by the database, so reload it before the response reads it.
+    await db_session.refresh(document)
+    return document
 
 
 async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: AsyncSession):
@@ -142,7 +175,7 @@ async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: 
     await db_session.refresh(document)
 
     try:
-        delete_file(document.file_id)
+        await run_in_threadpool(delete_file, document.file_id)
     except Exception:
         # A repeat DELETE can retry this idempotent MinIO cleanup.
         logger.exception(
@@ -194,3 +227,18 @@ async def get_processing_request_by_id(id: int, current_user: CurrentUser, db_se
     record = await db_session.execute(stmt)
     result = record.scalar_one_or_none()
     return result
+
+
+async def cancel_processing_request(id: int, db_session: AsyncSession) -> bool:
+    """Cancel a request that has not started. Returns False if it already started or finished."""
+    # A single conditional UPDATE, so it cannot race with the worker picking the request up.
+    result = await db_session.execute(
+        update(Processing_Request)
+        .where(
+            Processing_Request.id == id,
+            Processing_Request.status.in_([Processing_status.PENDING, Processing_status.QUEUED]),
+        )
+        .values(status=Processing_status.CANCELLED, updated_at=func.now())
+    )
+    await db_session.commit()
+    return result.rowcount == 1

@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:8000"
     # JSON list in .env, e.g. cors_origins=["http://localhost:3000"]
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Login and password-reset throttling, stored in the broker's Redis.
+    rate_limit_enabled: bool = True
+    # Email the document owner when processing completes or finally fails.
+    processing_email_enabled: bool = True
     
     
 def load_settings() -> Settings:

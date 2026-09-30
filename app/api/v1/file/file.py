@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.dependencies import get_db_session
@@ -8,6 +9,7 @@ from app.service.auth.auth import CurrentUser
 from app.service.file.crud import get_count
 from app.service.file.file import get_all_files, get_file_by_id, delete_file_by_id
 from app.service.file.schema import FileResponse, PaginatedFileResponse
+from app.utils.http import attachment_disposition
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
@@ -42,12 +44,10 @@ async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: Asyn
     result = await get_file_by_id(id=id, current_user=current_user, db_session=db_session)
 
     if result:
-        return Response(
+        return StreamingResponse(
             content=result["content"],
             media_type=result["content_type"],
-            headers={
-                "Content-Disposition": f'attachment; filename="{result["name"]}"'
-            }
+            headers={"Content-Disposition": attachment_disposition(result["name"])},
         )
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,

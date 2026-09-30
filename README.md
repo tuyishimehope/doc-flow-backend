@@ -210,6 +210,8 @@ mail_from=noreply@example.com
 mail_use_tls=true
 frontend_url=http://localhost:3000
 cors_origins=["http://localhost:3000"]
+rate_limit_enabled=true
+processing_email_enabled=true
 ```
 
 Generate a signing secret with:
@@ -313,7 +315,8 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 
 | Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/`, `/start`, `/health` | No | Application liveness |
+| GET | `/`, `/start` | No | Application liveness |
+| GET | `/health` | No | Checks PostgreSQL, Redis, and object storage; 503 if any is down |
 | POST | `/api/v1/users/signup` | No | Register a user |
 | POST | `/api/v1/users/token` | No | Obtain an access token |
 | GET | `/api/v1/users/me` | Yes | Get the current user |
@@ -323,8 +326,10 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/users/reset-password` | No | Reset with a token |
 | PATCH | `/api/v1/users/me/password` | Yes | Change the current password |
 | POST | `/api/v1/documents` | Yes | Upload and enqueue a document |
-| GET | `/api/v1/documents` | Yes | List your documents |
+| GET | `/api/v1/documents` | Yes | List your documents; filter with `q` (name search) and `status` (`ACTIVE`/`ARCHIVED`) |
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
+| PATCH | `/api/v1/documents/{id}` | Yes | Archive or restore: `{"status": "ARCHIVED"}` or `{"status": "ACTIVE"}` |
+| POST | `/api/v1/documents/{id}/process` | Yes | Process an uploaded document again: `{"processing_type": "...", "instructions": "..."}` |
 | DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document and remove its stored file |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
 | GET | `/api/v1/documents/{id}/processing-requests` | Yes | List a document's processing requests, newest first |
@@ -334,8 +339,14 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/processing-requests/{id}` | Yes | Get a processing request |
 | GET | `/api/v1/processing-requests/status/{id}` | Yes | Get processing status |
 | GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
+| GET | `/api/v1/processing-requests/{id}/export?format=json\|csv` | Yes | Download the result as JSON or CSV |
+| POST | `/api/v1/processing-requests/{id}/cancel` | Yes | Cancel a request that has not started (409 otherwise) |
 
 Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
+
+Login allows 10 attempts per email every 5 minutes and forgot-password 3 emails per 15 minutes (HTTP 429 beyond that). Counters live in the broker Redis; set `rate_limit_enabled=false` to turn this off.
+
+When processing finishes or finally fails, the document owner gets an email. Set `processing_email_enabled=false` to turn this off. Failed attempts list a readable `failure_reason` in `GET /api/v1/documents/{id}/jobs`.
 
 ## Development
 

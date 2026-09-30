@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 import datetime
 
 from app.core.minio import minio_client
@@ -24,7 +25,9 @@ async def post_file(file: UploadFile, file_id: str):
     size = file.file.tell()
     file.file.seek(0)
 
-    minio_client.put_object(
+    # The MinIO client is blocking; keep it off the event loop.
+    await run_in_threadpool(
+        minio_client.put_object,
         bucket_name=BUCKET_NAME,
         object_name=file_id,
         data=file.file,
@@ -52,17 +55,18 @@ async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSe
     if not file_record:
         return None
 
-    response = get_file(file_id=id)
+    response = await run_in_threadpool(get_file, id)
 
-    try:
-        content = response.read()
-    finally:
-        response.close()
-        response.release_conn()
+    def stream_content():
+        try:
+            yield from response.stream(64 * 1024)
+        finally:
+            response.close()
+            response.release_conn()
 
     return {
         "name": file_record.name,
-        "content": content,
+        "content": stream_content(),
         "content_type": file_record.content_type
     }
 
@@ -98,7 +102,7 @@ async def delete_file_by_id(id: int, current_user: CurrentUser, db_session: Asyn
         raise
 
     try:
-        delete_file(id)
+        await run_in_threadpool(delete_file, id)
     except Exception:
         # Repeating DELETE retries object cleanup after the records are tombstoned.
         logger.exception(

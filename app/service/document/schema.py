@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 class Processing_Type(str, Enum):
@@ -78,6 +79,21 @@ class ProcessingJobResponse(BaseModel):
     status: str
     created_at: datetime | None
     completed_at: datetime | None
+    failure_reason: str | None = None
+
+
+class DocumentUpdate(BaseModel):
+    status: Literal[Document_Status.ACTIVE, Document_Status.ARCHIVED]
+
+
+class ProcessRequest(BaseModel):
+    processing_type: Processing_Type
+    instructions: str | None = None
+
+
+class ExportFormat(str, Enum):
+    JSON = "json"
+    CSV = "csv"
 
 
 class InvoiceLineItem(BaseModel):
