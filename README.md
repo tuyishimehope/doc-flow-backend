@@ -1,60 +1,174 @@
-# DocFlow API
+# DocFlow Backend
 
-DocFlow is a FastAPI backend for uploading documents, processing them asynchronously, and retrieving AI-generated summaries, invoice information, or contract metadata. PostgreSQL stores users and workflow records, MinIO stores uploaded files, and Celery workers process requests through Redis.
+An asynchronous document-processing API for uploading files and turning their contents into useful AI-generated output.
 
-## Contents
+DocFlow combines FastAPI, PostgreSQL, MinIO, Redis, Celery, and OpenAI to provide authenticated document storage and background processing. It currently supports document summaries, invoice extraction, and contract metadata extraction from PDF, DOCX, JPEG, PNG, and TIFF files.
 
-- [Features and processing flow](#features-and-processing-flow)
-- [Requirements](#requirements)
+> [!NOTE]
+> This repository is under active development. The current implementation is best suited to local development and evaluation; review the [known limitations](#known-limitations) before using it with production or sensitive data.
+
+## Table of contents
+
+- [Why DocFlow?](#why-docflow)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Tech stack](#tech-stack)
+- [Quick start](#quick-start)
 - [Configuration](#configuration)
-- [Local development](#local-development)
-- [Docker Compose](#docker-compose)
-- [API walkthrough](#api-walkthrough)
-- [Endpoint reference](#endpoint-reference)
-- [Database migrations](#database-migrations)
-- [Tests](#tests)
-- [Project structure](#project-structure)
-- [Troubleshooting and implementation notes](#troubleshooting-and-implementation-notes)
+- [Usage](#usage)
+- [API reference](#api-reference)
+- [Development](#development)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [Known limitations](#known-limitations)
+- [License](#license)
 
-## Features and processing flow
+## Why DocFlow?
 
-- Account registration, JWT bearer authentication, profile updates, password changes, and email-based password resets.
-- Document upload, per-user document/file listings, file downloads, and deletion endpoints.
-- Three processing types: `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRACT_METADATA`.
-- Text extraction from PDFs, DOCX documents, and OCR for JPEG, PNG, and TIFF images.
-- Background processing with stored request statuses, job attempts, and extraction results.
-- Interactive API documentation through FastAPI's Swagger UI and ReDoc.
+Document-heavy workflows often require the same plumbing: secure uploads, durable storage, text extraction, long-running AI jobs, status tracking, and result retrieval. DocFlow packages those concerns behind one API so applications can submit documents without blocking an HTTP request while OCR and AI processing complete.
+
+The project provides a practical foundation for summarizing reports, extracting fields from invoices, identifying contract metadata, and tracking asynchronous processing outcomes.
+
+## Features
+
+- JWT-based signup, login, profile management, and password changes
+- Email-based password reset flow
+- Per-user document and file access
+- Multipart uploads backed by MinIO object storage
+- PDF and DOCX text extraction
+- OCR for JPEG, PNG, and TIFF images with Tesseract
+- Background processing through Celery and Redis
+- PostgreSQL persistence for users, documents, requests, jobs, and results
+- Three processing modes: `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRACT_METADATA`
+- Interactive OpenAPI documentation through Swagger UI and ReDoc
+
+## How it works
 
 ```text
-Client -> FastAPI -> PostgreSQL (users, documents, requests, jobs, results)
-                 -> MinIO (original files)
-                 -> Redis -> Celery worker
-                               |-> MinIO: read file
-                               |-> pypdf / python-docx / Tesseract: extract text
-                               |-> OpenAI: process extracted text
-                               `-> PostgreSQL: save status and result
+Client
+  |
+  v
+FastAPI --------> PostgreSQL
+  |               users, documents, requests, jobs, results
+  |
+  +-------------> MinIO
+  |               original files
+  |
+  `-------------> Redis queue -----> Celery worker
+                                      |-- extract text / run OCR
+                                      |-- send content to OpenAI
+                                      `-- persist status and result
 ```
 
-An upload creates a file record, document, and processing request, then enqueues a Celery task. The usual request lifecycle is `PENDING -> QUEUED -> PROCESSING -> COMPLETED`; processing errors can set `FAILED`. `CANCELLED` is defined in the schema, but there is no cancellation endpoint.
+Uploading a file creates the file, document, and processing-request records before placing a task on the queue. A successful request normally moves through:
 
-Results are stored and returned as `{"result": "model output"}`. Invoice and contract processing currently return model-generated text, without a validated structured output schema. Extracted document text and the supplied instructions are sent to OpenAI. The model is currently hardcoded to `gpt-5.5` in [the OpenAI service](app/service/openai/service.py).
+```text
+PENDING -> QUEUED -> PROCESSING -> COMPLETED
+```
 
-## Requirements
+Errors move the request to `FAILED`. `CANCELLED` exists in the data model, but there is currently no cancellation endpoint.
 
-- **Python 3.12 or newer** for the current source: some f-strings reuse quote characters inside expressions, which older Python versions cannot parse.
-- PostgreSQL (the Compose stack uses version 16).
-- Redis (the Compose stack uses version 7).
-- MinIO or a compatible endpoint supported by the MinIO client.
-- Tesseract OCR installed wherever the Celery worker runs.
-- An OpenAI API key with access to the configured model for actual processing.
-- SMTP credentials/server for password reset emails.
-- Docker and Docker Compose if using the included infrastructure stack.
+## Tech stack
 
-**Docker compatibility:** the checked-in `dockerfile` currently uses `python:3.10-slim`, which conflicts with the source syntax requirement above. Use the local Python 3.12+ workflow below, or update the image's base to `python:3.12-slim` before building the application containers.
+| Component | Role |
+| --- | --- |
+| FastAPI | HTTP API and OpenAPI documentation |
+| SQLAlchemy + asyncpg | Async database access |
+| PostgreSQL | Application and workflow data |
+| Alembic | Database migrations |
+| MinIO | Uploaded file storage |
+| Redis | Celery message broker and result backend |
+| Celery | Background document processing |
+| OpenAI API | Summarization and extraction |
+| pypdf / python-docx | PDF and DOCX text extraction |
+| Tesseract | Image OCR |
+
+## Quick start
+
+### Prerequisites
+
+- Python 3.12 or newer
+- Docker and Docker Compose
+- Tesseract OCR
+- An OpenAI API key with access to the configured model
+- SMTP credentials if you want to test password-reset email delivery
+
+The included Dockerfile currently uses Python 3.10, while parts of the source require Python 3.12 syntax. Until the image is updated, use Docker Compose for the supporting services and run the API and worker in a local Python 3.12+ environment.
+
+### 1. Create the environment
+
+```bash
+git clone <repository-url>
+cd doc_flow_backend
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Install Tesseract if it is not already available:
+
+```bash
+# macOS
+brew install tesseract
+
+# Debian / Ubuntu
+sudo apt-get update
+sudo apt-get install tesseract-ocr
+```
+
+### 2. Configure the application
+
+Create `.env` in the repository root. The checked-in `.env.example` is not yet complete, so use the full example in [Configuration](#configuration).
+
+### 3. Start the dependencies
+
+```bash
+docker compose up -d postgres redis minio
+docker compose exec postgres pg_isready -U postgres -d docflow
+alembic upgrade head
+```
+
+### 4. Start the API and worker
+
+Run the API:
+
+```bash
+uvicorn app.main:app --env-file .env --host 0.0.0.0 --port 8000 --reload
+```
+
+In another terminal, activate the same virtual environment and run the worker:
+
+```bash
+source .venv/bin/activate
+celery -A app.tasks.celery_app worker --loglevel=INFO
+```
+
+Verify the service:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok","service":"doc-flow-backend","message":"App is running"}
+```
+
+| Service | URL |
+| --- | --- |
+| API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| ReDoc | http://localhost:8000/redoc |
+| MinIO API | http://localhost:9000 |
+| MinIO console | http://localhost:9001 |
+
+PostgreSQL is exposed on `localhost:5433`; Redis is exposed on `localhost:6379`.
 
 ## Configuration
 
-Run commands from the repository root. The application reads `.env` through Pydantic Settings. The checked-in [.env.example](.env.example) is incomplete: it omits required `secret_key` and `DATABASE_USER` settings, and includes an unused `REDIS_URL` entry that can trigger an extra-field validation error. Use the following complete local-development template when creating your `.env`:
+Create a `.env` file with the following settings:
 
 ```dotenv
 app_name=DocFlow
@@ -90,27 +204,15 @@ mail_use_tls=true
 frontend_url=http://localhost:3000
 ```
 
-Generate a signing secret with `python -c 'import secrets; print(secrets.token_hex(32))'` and replace the placeholder. Keep `.env` out of version control. The database and MinIO credentials above match the included local Compose services.
+Generate a signing secret with:
 
-| Setting | Purpose / default |
-| --- | --- |
-| `app_name` | Required application setting; the FastAPI title is not currently wired to it. |
-| `secret_key` | Required JWT signing secret. |
-| `algorithm`, `access_token_expire_minutes` | JWT algorithm and token lifetime; defaults: `HS256`, `30`. |
-| `broker_host`, `broker_backend` | Required Celery broker and result-backend URLs. |
-| `OPENAI_API_KEY` | Required setting; a working key is needed for AI processing. |
-| `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, `DATABASE_PORT` | Required PostgreSQL connection components, used by both the application and Alembic. |
-| `MINIO_ENDPOINT` | Required `host:port`, without a URL scheme. |
-| `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET` | Required storage credentials and bucket name. |
-| `MINIO_SECURE` | Required boolean; use `false` for the local HTTP MinIO service. |
-| `DATABASE_URL_TEST` | Required by settings, but the current test fixture overrides this value; see [Tests](#tests). |
-| `reset_token_expire_minutes` | Password reset token lifetime; default: `60`. |
-| `mail_server`, `mail_port` | SMTP host and port; defaults: `localhost`, `587`. |
-| `mail_username`, `mail_password` | Optional SMTP authentication; defaults: empty strings. |
-| `mail_from`, `mail_use_tls` | Sender and SMTP STARTTLS setting; defaults: `noreply@example.com`, `true`. |
-| `frontend_url` | Base URL for the frontend's `/reset-password?token=...` page; code default: `http://localhost:8000`. No frontend is included here. |
+```bash
+python -c 'import secrets; print(secrets.token_hex(32))'
+```
 
-For application containers, change these values in `.env`:
+Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must be a `host:port` value without a URL scheme.
+
+If you run the API and worker inside Compose after updating the Docker Python version, use service names instead of host addresses:
 
 ```dotenv
 DATABASE_HOST=postgres
@@ -120,99 +222,11 @@ broker_backend=redis://redis:6379/1
 MINIO_ENDPOINT=minio:9000
 ```
 
-The API creates the configured MinIO bucket during startup if it does not exist. Startup also checks PostgreSQL connectivity. `MINIO_BUCKET` is read directly from the process environment in the startup hook; the launch command below explicitly loads `.env` into that environment.
+## Usage
 
-## Local development
+The examples below use the sample invoice at `tests/assets/sample-pdf-invoice.pdf`.
 
-1. Create `.env` using the local template above.
-2. Create a Python environment and install dependencies:
-
-   ```bash
-   python3.12 -m venv .venv
-   source .venv/bin/activate
-   python -m pip install -r requirements.txt
-   ```
-
-3. Install Tesseract on the worker host:
-
-   ```bash
-   # macOS (Homebrew)
-   brew install tesseract
-
-   # Debian / Ubuntu
-   sudo apt-get update
-   sudo apt-get install tesseract-ocr
-   ```
-
-4. Start infrastructure, then apply migrations once PostgreSQL is ready:
-
-   ```bash
-   docker compose up -d postgres redis minio
-   docker compose exec postgres pg_isready -U postgres -d docflow
-   alembic upgrade head
-   ```
-
-5. Start the API:
-
-   ```bash
-   uvicorn app.main:app --env-file .env --host 0.0.0.0 --port 8000 --reload
-   ```
-
-6. In a second terminal, activate the same environment and start the worker from the repository root:
-
-   ```bash
-   source .venv/bin/activate
-   celery -A app.tasks.celery_app worker --loglevel=INFO
-   ```
-
-| Service | Local address |
-| --- | --- |
-| API | http://localhost:8000 |
-| Swagger UI | http://localhost:8000/docs |
-| ReDoc | http://localhost:8000/redoc |
-| OpenAPI schema | http://localhost:8000/openapi.json |
-| PostgreSQL | `localhost:5433` (container port `5432`) |
-| Redis | `localhost:6379` |
-| MinIO API | http://localhost:9000 |
-| MinIO console | http://localhost:9001 |
-
-Check the API with `curl http://localhost:8000/health`. The expected response is:
-
-```json
-{"status":"ok","service":"doc-flow-backend","message":"App is running"}
-```
-
-`/`, `/start`, and `/health` return the same response. These are application liveness endpoints; they do not recheck downstream services on each request.
-
-## Docker Compose
-
-After updating the Python base image as noted under [Requirements](#requirements), configure `.env` with the container hostnames and run:
-
-```bash
-docker compose up --build -d
-docker compose logs -f api worker
-```
-
-The API entrypoint waits five seconds, runs `alembic upgrade head`, then launches Uvicorn with reload enabled. There are no readiness health checks in Compose; if PostgreSQL is still starting, the API can exit and need restarting after the database is ready:
-
-```bash
-docker compose restart api
-```
-
-The worker runs separately and must be running for queued requests to progress. This Compose configuration is for development: it bind-mounts the source tree, uses reload and debug worker logging, and publishes database/storage ports.
-
-```bash
-# Stop the stack while preserving the database and uploaded files.
-docker compose down
-```
-
-PostgreSQL and MinIO use named volumes. Adding `--volumes` to `docker compose down` deletes those volumes and their stored data.
-
-## API walkthrough
-
-These examples use a local API and the sample PDF committed under `tests/assets/`.
-
-### 1. Register and log in
+### Register and authenticate
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/users/signup \
@@ -225,7 +239,7 @@ curl -X POST http://localhost:8000/api/v1/users/token \
   --data-urlencode 'password=ExamplePassword123!'
 ```
 
-Login uses OAuth2 form fields: put the **email address in `username`**. Copy `access_token` from the response:
+Login uses OAuth2 form fields, so the email address is passed as `username`. Copy the returned token:
 
 ```bash
 TOKEN='paste-access-token-here'
@@ -233,7 +247,7 @@ curl http://localhost:8000/api/v1/users/me \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### 2. Upload a document and enqueue processing
+### Upload and process a document
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/documents \
@@ -243,161 +257,166 @@ curl -X POST http://localhost:8000/api/v1/documents \
   -F 'instructions=Summarize the key information in this document.'
 ```
 
-Example response (`201 Created`; IDs vary):
+Example response:
 
 ```json
 {"document_id":1,"processing_request_id":1,"status":"QUEUED"}
 ```
 
-Use `INVOICE_EXTRACTION` or `CONTRACT_METADATA` to select the other processing modes. Both require an `instructions` field as well.
+Valid processing modes are `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRACT_METADATA`.
 
-### 3. Poll status and retrieve output
+### Check status and retrieve the result
 
-Use the returned **processing request ID**:
+The current handlers require the processing request ID in both the path and the `processing_request_id` query parameter:
 
 ```bash
 REQUEST_ID=1
 curl "http://localhost:8000/api/v1/processing-requests/status/$REQUEST_ID?processing_request_id=$REQUEST_ID" \
   -H "Authorization: Bearer $TOKEN"
 
-# Retrieve the result after the status becomes COMPLETED.
 curl "http://localhost:8000/api/v1/processing-requests/result/$REQUEST_ID?processing_request_id=$REQUEST_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The current status/result handlers declare `processing_request_id` as a query parameter while the route path uses `{id}`. Supply both as shown; the query parameter selects the request. A result that is not yet available returns `404`.
+Result responses currently use the shape `{"result":"model output"}`. A result that is not available returns `404`.
 
-### 4. Retrieve the original file
-
-Fetch `/api/v1/documents/{document_id}` to find its `file_id`, then download using that file ID:
+### Download the original file
 
 ```bash
+DOCUMENT_ID=1
+curl "http://localhost:8000/api/v1/documents/$DOCUMENT_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
 FILE_ID=1
 curl "http://localhost:8000/api/v1/files/$FILE_ID" \
   -H "Authorization: Bearer $TOKEN" \
   --output downloaded-document.pdf
 ```
 
-## Endpoint reference
+## API reference
 
-See [Swagger UI](http://localhost:8000/docs) for request schemas and interactive requests. “Bearer” below means an `Authorization: Bearer <token>` header is required by the handler.
+The complete, interactive schema is available at `/docs` while the API is running.
 
-| Method | Path | Authentication | Purpose |
+| Method | Endpoint | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/`, `/start`, `/health` | Public | Application liveness |
-| POST | `/api/v1/users/signup` | Public | Register an account |
-| POST | `/api/v1/users/token` | Public | Exchange email/password form for a JWT |
-| GET | `/api/v1/users/me` | Bearer | Current profile |
-| GET | `/api/v1/users/` | Bearer | Paginated user list |
-| PATCH | `/api/v1/users/{id}` | Bearer | Update own profile |
-| DELETE | `/api/v1/users/{id}` | Bearer | Delete own account |
-| POST | `/api/v1/users/forgot-password` | Public | Request a reset email (`email`) |
-| POST | `/api/v1/users/reset-password` | Public | Reset password (`token`, `new_password`) |
-| PATCH | `/api/v1/users/me/password` | Bearer | Change password (`current_password`, `new_password`) |
-| POST | `/api/v1/documents` | Bearer | Multipart upload and processing request |
-| GET | `/api/v1/documents` | Bearer | List own documents |
-| GET | `/api/v1/documents/{id}` | Bearer | Read document metadata |
-| DELETE | `/api/v1/documents/{id}` | Bearer | Delete document |
-| GET | `/api/v1/documents/{id}/jobs` | Public in current code | Job attempts; see implementation notes |
-| GET | `/api/v1/files` | Bearer | List own files |
-| GET | `/api/v1/files/{id}` | Bearer | Download original file |
-| DELETE | `/api/v1/files/{id}` | Bearer | Soft-delete file record |
-| GET | `/api/v1/processing-requests/{id}` | Bearer | Read processing request |
-| GET | `/api/v1/processing-requests/status/{id}` | Bearer | Request status; also requires `processing_request_id` query parameter |
-| GET | `/api/v1/processing-requests/result/{id}` | Bearer | Output; also requires `processing_request_id` query parameter |
+| GET | `/`, `/start`, `/health` | No | Application liveness |
+| POST | `/api/v1/users/signup` | No | Register a user |
+| POST | `/api/v1/users/token` | No | Obtain an access token |
+| GET | `/api/v1/users/me` | Yes | Get the current user |
+| GET | `/api/v1/users/` | Yes | List users |
+| PATCH | `/api/v1/users/{id}` | Yes | Update your profile |
+| DELETE | `/api/v1/users/{id}` | Yes | Delete your account |
+| POST | `/api/v1/users/forgot-password` | No | Request a reset email |
+| POST | `/api/v1/users/reset-password` | No | Reset with a token |
+| PATCH | `/api/v1/users/me/password` | Yes | Change the current password |
+| POST | `/api/v1/documents` | Yes | Upload and enqueue a document |
+| GET | `/api/v1/documents` | Yes | List your documents |
+| GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
+| DELETE | `/api/v1/documents/{id}` | Yes | Delete a document |
+| GET | `/api/v1/documents/{id}/jobs` | No* | List processing attempts |
+| GET | `/api/v1/files` | Yes | List your files |
+| GET | `/api/v1/files/{id}` | Yes | Download a file |
+| DELETE | `/api/v1/files/{id}` | Yes | Soft-delete a file record |
+| GET | `/api/v1/processing-requests/{id}` | Yes | Get a processing request |
+| GET | `/api/v1/processing-requests/status/{id}` | Yes | Get processing status |
+| GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
 
-List endpoints accept `skip` and `limit`, returning their collection plus `total`, `skip`, `limit`, and `has_more`. Defaults are `skip=0`, `limit=10`. Current bounds differ: documents allow `limit=2..50`, files `1..50`, and users `1..100`; maximum `skip` is 50 for documents/files and 100 for users.
+`*` The jobs endpoint currently has no authentication dependency. Treat this as an implementation gap, not the intended security policy.
 
-Password reset/change schemas require at least eight characters for the new password. The reset email links to the configured frontend; the backend exposes JSON endpoints rather than a reset form.
+Collection endpoints use `skip` and `limit`. Documents and files cap both at 50; users cap both at 100. The documents endpoint requires `limit` to be at least 2.
 
-## Database migrations
+## Development
 
-Alembic reads its database connection from the same settings as the API. For a local Python environment:
+### Database migrations
 
 ```bash
 alembic current
 alembic upgrade head
 
-# After making a model change:
+# After changing a persistence model:
 alembic revision --autogenerate -m "describe the schema change"
 ```
 
-Review generated migrations before applying or committing them. With a running API container, use `docker compose exec api alembic current` or `docker compose exec api alembic upgrade head`. Compose's API entrypoint already applies migrations on startup.
+Always review autogenerated migrations before applying or committing them.
 
-## Tests
+### Project structure
 
-The suite uses pytest, AnyIO, HTTPX's ASGI transport, and a real PostgreSQL test database. File-storage calls and task submission are mocked in upload tests; these tests do not exercise real OCR or OpenAI processing.
+```text
+app/
+├── main.py                  # FastAPI application and lifecycle
+├── api/v1/                 # Versioned HTTP routes
+├── core/                   # Settings and MinIO client
+├── db/                     # Engines, sessions, and dependencies
+├── models/schema.py        # SQLAlchemy persistence models
+├── service/                # Auth, document, file, and OpenAI logic
+├── tasks/                  # Celery configuration and tasks
+├── utils/                  # Text extraction and email helpers
+└── workers/                # Worker-related modules
+migrations/                 # Alembic migrations
+templates/email/            # Password-reset email template
+tests/                      # API tests and sample assets
+```
 
-**Use a dedicated test database:** the fixture drops and recreates all application tables at session startup, and drops them again during teardown.
+### Docker Compose
 
-The current [test fixture](tests/conftest.py) hardcodes this connection string, overriding `DATABASE_URL_TEST`:
+Once the Dockerfile uses Python 3.12 or newer, start the full development stack with:
+
+```bash
+docker compose up --build -d
+docker compose logs -f api worker
+```
+
+The API entrypoint applies migrations before starting Uvicorn. Compose currently has no readiness checks, so the API may need `docker compose restart api` if PostgreSQL is still starting.
+
+Use `docker compose down` to stop the stack while preserving data. Adding `--volumes` removes the named PostgreSQL and MinIO volumes and their data.
+
+## Testing
+
+The tests use pytest, HTTPX, AnyIO, and a real PostgreSQL test database. MinIO calls and task submission are mocked in upload tests; the suite does not perform end-to-end OCR or OpenAI processing.
+
+> [!WARNING]
+> Use an isolated test database. The fixture creates and drops all application tables.
+
+The current fixture hardcodes this connection instead of reading `DATABASE_URL_TEST`:
 
 ```text
 postgresql+asyncpg://docflow_user:your_password@localhost/test_docflow
 ```
 
-It therefore expects PostgreSQL on port **5432**, unlike the Compose stack's host port **5433**. Before running the tests, either provision that isolated database/user on port 5432, or update the fixture's connection string to point to a dedicated test database on your chosen server. Changing `.env` alone does not change the fixture's connection.
-
-The fixture imports the application before assigning its environment overrides, so a complete application `.env` is still required during test collection.
+It expects PostgreSQL on port 5432, whereas the Compose database is published on port 5433. Provision that dedicated database and user, or update `tests/conftest.py` for your isolated test server.
 
 ```bash
-source .venv/bin/activate
 python -m pytest -q
-
-# Run one module:
-python -m pytest tests/test_users.py -q
 ```
 
-Current tests cover registration, login, profile operations, document upload/list/read/delete, and a missing-document response. They do not provide end-to-end verification of the worker pipeline or password reset email delivery.
+## Contributing
 
-## Project structure
+Contributions are welcome. Before opening a pull request:
 
-```text
-app/
-├── main.py                    # FastAPI app, startup checks, liveness routes
-├── api/v1/                    # User, document, file, processing request routes
-├── core/                      # Settings and MinIO client
-├── db/                        # SQLAlchemy engines, sessions, dependencies
-├── models/schema.py           # Persistence models and relationships
-├── service/
-│   ├── auth/                  # Authentication, user operations, schemas
-│   ├── document/              # Document/request operations and schemas
-│   ├── file/                  # Storage operations and file schemas
-│   └── openai/service.py      # AI processing calls
-├── tasks/                     # Celery app, task discovery, document processing
-├── utils/                     # Text extraction and email helpers
-└── workers/                   # Additional worker module
-migrations/                    # Alembic environment and versioned migrations
-templates/email/               # Password reset email template
-tests/                         # API tests, fixtures, sample PDF
-alembic.ini                    # Alembic configuration
-docker-compose.yml             # API, worker, PostgreSQL, Redis, MinIO
-dockerfile                     # Application image (see Python version note)
-entrypoint.sh                  # Migration and development API startup
-requirements.txt               # Python dependencies
-```
+1. Create a focused branch for the change.
+2. Keep route handlers, service logic, and persistence concerns in their existing layers.
+3. Add an Alembic migration for every database-model change.
+4. Add or update tests for changed behavior.
+5. Run `python -m pytest -q` against an isolated test database.
+6. Update this README when configuration, endpoints, or operating requirements change.
+7. Explain the motivation, behavior change, and verification performed in the pull request.
 
-## Troubleshooting and implementation notes
+Never commit `.env`, API keys, SMTP credentials, uploaded documents, or other secrets. For security issues, avoid publishing sensitive details in a public issue; contact the repository owner privately instead.
 
-| Symptom | Check |
-| --- | --- |
-| `SyntaxError` around an f-string | Use Python 3.12+; update the Docker base image before building. |
-| Settings validation errors on startup | Supply every required setting and remove unsupported `.env` entries such as `REDIS_URL`. |
-| Database connection refused | Wait for PostgreSQL and use port `5433` from the host or `postgres:5432` inside Compose. |
-| MinIO connection/bucket errors | Check endpoint, credentials, and `MINIO_SECURE`; use `--env-file .env` for local Uvicorn startup. |
-| Requests remain `QUEUED` | Check worker logs and confirm API/worker use the same broker and database. |
-| Processing becomes `FAILED` | Check worker logs, file text extraction, Tesseract installation, API key, and model access. |
-| Status/result requests return `422` | Include the `processing_request_id` query parameter as shown in the walkthrough. |
-| Password reset email is not delivered | Configure a reachable SMTP server and compatible authentication/STARTTLS settings. |
-| Tests cannot connect to PostgreSQL | Check the hardcoded test fixture URL and dedicated test database setup. |
+## Known limitations
 
-The current implementation has several limits relevant to running or extending it:
+- The Dockerfile uses Python 3.10, but the current source requires Python 3.12+ syntax.
+- The checked-in `.env.example` omits required settings and contains an unsupported `REDIS_URL` key.
+- Status and result routes require a duplicated query parameter in addition to the path ID.
+- Invoice and contract results are model-generated text, not validated structured objects.
+- The OpenAI model name is hardcoded in `app/service/openai/service.py`.
+- Scanned, image-only PDFs are not passed through OCR.
+- DOCX processing may fail because the extraction helper does not first read the MinIO response stream into bytes.
+- Celery task exceptions are caught without being re-raised, which can prevent configured automatic retries.
+- The jobs endpoint is unauthenticated and queries by processing-request ID despite being nested under a document route.
+- Deleting a file soft-deletes its database record but does not remove its MinIO object.
+- Worker logs may include extracted document contents; review logging before handling sensitive data.
 
-- PDF extraction reads embedded text; scanned image-only PDFs are not passed through OCR.
-- DOCX is accepted at upload, but its extraction helper wraps the MinIO response directly in `BytesIO` instead of reading its bytes first. DOCX processing may fail until that stream handling is corrected.
-- The Celery task declares automatic retries, but its outer exception handler catches errors without re-raising them. Do not rely on automatic retries or Celery task success alone; inspect the persisted processing request status.
-- The jobs endpoint has no authentication dependency, and its underlying query uses a processing request ID even though it is nested under `/documents/{id}/jobs`.
-- File deletion marks the database record as deleted; it does not remove the stored MinIO object.
-- Worker code logs extracted document content, and the Compose worker runs at debug level. Review logging before processing sensitive documents.
+## License
 
-These notes describe the current code rather than guarantees of production readiness. When contributing, include migrations for model changes, update this README for configuration/API changes, and run the relevant tests against an isolated test database.
+No license file is currently included. Unless the repository owner adds one, the project should be treated as all rights reserved; public source availability alone does not grant permission to use, modify, or redistribute it.
