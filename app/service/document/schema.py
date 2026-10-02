@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 class Processing_Type(str, Enum):
     DOCUMENT_SUMMARY = "DOCUMENT_SUMMARY"
     INVOICE_EXTRACTION = "INVOICE_EXTRACTION"
@@ -83,7 +83,16 @@ class ProcessingJobResponse(BaseModel):
 
 
 class DocumentUpdate(BaseModel):
-    status: Literal[Document_Status.ACTIVE, Document_Status.ARCHIVED]
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    status: Literal[Document_Status.ACTIVE, Document_Status.ARCHIVED] | None = None
+
+    @model_validator(mode="after")
+    def require_a_change(self):
+        if self.name is None and self.status is None:
+            raise ValueError("Provide a name, a status, or both")
+        return self
 
 
 class ProcessRequest(BaseModel):
@@ -140,3 +149,34 @@ class ProcessingResultResponse(BaseModel):
         default=None,
         description="No calibrated confidence score is provided by the current model workflow.",
     )
+
+
+# Requests in these states have stopped and can be run again.
+RETRYABLE_STATUSES = (Processing_status.FAILED, Processing_status.CANCELLED)
+
+
+class DocumentStats(BaseModel):
+    total: int
+    active: int
+    archived: int
+
+
+class ProcessingStats(BaseModel):
+    total: int
+    by_status: dict[Processing_status, int]
+    by_type: dict[Processing_Type, int]
+
+
+class RecentFailure(BaseModel):
+    processing_request_id: int
+    document_id: int
+    document_name: str
+    processing_type: Processing_Type
+    failure_reason: str | None
+    failed_at: datetime | None
+
+
+class UserStatsResponse(BaseModel):
+    documents: DocumentStats
+    processing_requests: ProcessingStats
+    recent_failures: list[RecentFailure]

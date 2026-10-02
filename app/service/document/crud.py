@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.schema import Document, Extracted_Result, File, Processing_Request, Processing_Job
 from app.service.auth.auth import CurrentUser
-from app.service.document.schema import Document_Status, Processing_status
+from app.service.document.schema import DocumentStats, Document_Status, ProcessingStats, Processing_Job_Status, Processing_status, Processing_Type, RecentFailure, UserStatsResponse
 from app.service.file.file import delete_file
 
 logger = logging.getLogger(__name__)
@@ -132,17 +132,19 @@ async def get_total_no_of_documents(
     return response
 
 
-async def update_document_status(
+async def update_document(
     id: int,
-    status: Document_Status,
+    changes: dict,
     current_user: CurrentUser,
     db_session: AsyncSession,
 ) -> Document | None:
+    """Apply a rename and/or archive change, e.g. {"name": ..., "status": ...}."""
     document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
     if document is None:
         return None
 
-    document.status = status
+    for field, value in changes.items():
+        setattr(document, field, value)
     await db_session.commit()
     # updated_at is set by the database, so reload it before the response reads it.
     await db_session.refresh(document)
@@ -242,3 +244,67 @@ async def cancel_processing_request(id: int, db_session: AsyncSession) -> bool:
     )
     await db_session.commit()
     return result.rowcount == 1
+
+
+async def get_user_stats(user_id: int, db_session: AsyncSession, recent_failure_limit: int = 5) -> UserStatsResponse:
+    document_counts = dict((await db_session.execute(
+        select(Document.status, func.count())
+        .where(Document.user_id == user_id, Document.is_active())
+        .group_by(Document.status)
+    )).all())
+
+    request_rows = (await db_session.execute(
+        select(Processing_Request.status, Processing_Request.processing_type, func.count())
+        .join(Document)
+        .where(Document.user_id == user_id, Document.is_active())
+        .group_by(Processing_Request.status, Processing_Request.processing_type)
+    )).all()
+    # Start every key at 0 so clients get a stable shape.
+    by_status = dict.fromkeys(Processing_status, 0)
+    by_type = dict.fromkeys(Processing_Type, 0)
+    for request_status, processing_type, count in request_rows:
+        by_status[request_status] += count
+        by_type[processing_type] += count
+
+    failure_rows = (await db_session.execute(
+        select(
+            Processing_Request.id,
+            Document.id,
+            Document.name,
+            Processing_Request.processing_type,
+            Processing_Job.failure_reason,
+            Processing_Job.completed_at,
+        )
+        .select_from(Processing_Job)
+        .join(Processing_Request)
+        .join(Document)
+        .where(
+            Document.user_id == user_id,
+            Document.is_active(),
+            Processing_Request.status == Processing_status.FAILED,
+            Processing_Job.status == Processing_Job_Status.FAILED,
+        )
+        .order_by(Processing_Job.completed_at.desc(), Processing_Job.id.desc())
+        .limit(recent_failure_limit)
+    )).all()
+
+    return UserStatsResponse(
+        documents=DocumentStats(
+            total=sum(document_counts.values()),
+            active=document_counts.get(Document_Status.ACTIVE, 0),
+            archived=document_counts.get(Document_Status.ARCHIVED, 0),
+        ),
+        processing_requests=ProcessingStats(
+            total=sum(by_status.values()), by_status=by_status, by_type=by_type),
+        recent_failures=[
+            RecentFailure(
+                processing_request_id=request_id,
+                document_id=document_id,
+                document_name=document_name,
+                processing_type=processing_type,
+                failure_reason=failure_reason,
+                failed_at=failed_at,
+            )
+            for request_id, document_id, document_name, processing_type, failure_reason, failed_at in failure_rows
+        ],
+    )

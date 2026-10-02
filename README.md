@@ -320,6 +320,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/users/signup` | No | Register a user |
 | POST | `/api/v1/users/token` | No | Obtain an access token |
 | GET | `/api/v1/users/me` | Yes | Get the current user |
+| GET | `/api/v1/users/me/stats` | Yes | Dashboard counts: documents, requests by status and type, recent failures |
 | PATCH | `/api/v1/users/{id}` | Yes | Update your profile |
 | DELETE | `/api/v1/users/{id}` | Yes | Delete your account |
 | POST | `/api/v1/users/forgot-password` | No | Request a reset email |
@@ -328,7 +329,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/documents` | Yes | Upload and enqueue a document |
 | GET | `/api/v1/documents` | Yes | List your documents; filter with `q` (name search) and `status` (`ACTIVE`/`ARCHIVED`) |
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
-| PATCH | `/api/v1/documents/{id}` | Yes | Archive or restore: `{"status": "ARCHIVED"}` or `{"status": "ACTIVE"}` |
+| PATCH | `/api/v1/documents/{id}` | Yes | Rename and/or archive: `{"name": "..."}`, `{"status": "ARCHIVED"}` or `{"status": "ACTIVE"}` |
 | POST | `/api/v1/documents/{id}/process` | Yes | Process an uploaded document again: `{"processing_type": "...", "instructions": "..."}` |
 | DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document and remove its stored file |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
@@ -341,6 +342,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/processing-requests/result/{id}` | Yes | Get processing output |
 | GET | `/api/v1/processing-requests/{id}/export?format=json\|csv` | Yes | Download the result as JSON or CSV |
 | POST | `/api/v1/processing-requests/{id}/cancel` | Yes | Cancel a request that has not started (409 otherwise) |
+| POST | `/api/v1/processing-requests/{id}/retry` | Yes | Queue a new request with the same settings as a failed or cancelled one (409 otherwise) |
 
 Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
 

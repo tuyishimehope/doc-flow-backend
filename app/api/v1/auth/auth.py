@@ -17,6 +17,8 @@ from app.service.auth.auth import CurrentUser
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
 from app.utils.email_utils import send_password_reset_email
+from app.service.document.crud import get_user_stats
+from app.service.document.schema import UserStatsResponse
 
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
@@ -70,6 +72,12 @@ async def get_current_user(
     current_user: CurrentUser
 ):
     return current_user
+
+
+@router.get("/me/stats", response_model=UserStatsResponse)
+async def get_my_stats(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db_session)]):
+    """Dashboard counts for the current user's documents and processing requests."""
+    return await get_user_stats(user_id=current_user.id, db_session=db)
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)

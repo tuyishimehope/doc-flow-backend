@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, UploadFile, HTTPException, status, Body,
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.dependencies import get_db_session
-from app.service.document.crud import delete_document_by_id, get_all_documents, get_document_by_id, get_jobs, get_processing_requests_by_document, get_total_no_of_documents, update_document_status
+from app.service.document.crud import delete_document_by_id, get_all_documents, get_document_by_id, get_jobs, get_processing_requests_by_document, get_total_no_of_documents, update_document
 from app.service.document.document import process_document, queue_processing_request
 from app.service.document.schema import DocumentProcessingResponse, DocumentUpdate, Document_Status, PaginatedDocumentResponse, ProcessRequest, Processing_Type, DocumentResponse, ProcessingJobResponse, ProcessingRequestResponse
 from app.utils.document import valid_type_document, validate_document_content
@@ -65,8 +65,8 @@ async def get_documents_endpoint(
 
 @router.patch("/{id}", response_model=DocumentResponse)
 async def update_document_endpoint(id: int, body: DocumentUpdate, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
-    """Archive (status=ARCHIVED) or restore (status=ACTIVE) a document."""
-    document = await update_document_status(id=id, status=body.status, current_user=current_user, db_session=db_session)
+    """Rename a document and/or archive (status=ARCHIVED) or restore (status=ACTIVE) it."""
+    document = await update_document(id=id, changes=body.model_dump(exclude_none=True), current_user=current_user, db_session=db_session)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="Document Not Found")
