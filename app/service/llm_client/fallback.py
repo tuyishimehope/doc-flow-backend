@@ -94,7 +94,10 @@ class FallbackLLMClient:
 
     def _log_fallback(self, client: LLMClient, error: LLMError | None, index: int) -> None:
         following = self._clients[index + 1] if index + 1 < len(self._clients) else None
-        logger.warning(
+        # Failing over is routine (a warning). Running out of providers is an outage, so it is
+        # logged as an error, which Sentry turns into an event.
+        logger.log(
+            logging.WARNING if following else logging.ERROR,
             "LLM provider failed, trying the next one" if following else "LLM provider failed, no providers left",
             extra={
                 "provider": _name(client),

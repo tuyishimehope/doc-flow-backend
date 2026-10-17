@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.chat.schema import ChatRequest, ChatResponse, ModelsResponse, StreamChatRequest
 from app.core.config import settings
+from app.core.observability import set_tag, set_user_id
 from app.core.rate_limit import check_rate_limit
 from app.db.dependencies import get_db_session
 from app.db.session import SessionLocal
@@ -100,6 +101,12 @@ def to_http_error(exc: LLMError) -> HTTPException:
     )
 
 
+def _tag_request(user_id: int, model: str | None) -> None:
+    """Label error reports with who (numeric id only) and which model choice."""
+    set_user_id(user_id)
+    set_tag("chat.model_choice", model or AUTO)
+
+
 async def _rate_limit(current_user: CurrentUser) -> None:
     await check_rate_limit(
         key=f"chat:{current_user.id}",
@@ -121,6 +128,7 @@ async def chat_endpoint(
     pick_llm: Annotated[LLMPicker, Depends(get_llm_picker)],
 ) -> ChatResponse:
     await _rate_limit(current_user)
+    _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)
     try:
         result = await answer_message(body.message, llm)
@@ -151,6 +159,7 @@ async def chat_stream_endpoint(
     session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> StreamingResponse:
     await _rate_limit(current_user)
+    _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)  # before any database work, so a bad choice creates nothing
     conversation = await _conversation_for(body, current_user.id, db_session)
 

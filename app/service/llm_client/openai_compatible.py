@@ -24,6 +24,7 @@ from openai import (
 )
 from openai import AsyncOpenAI
 
+from app.core.observability import set_tag
 from app.service.llm_client.llm_client import (
     LLMError,
     LLMRateLimitError,
@@ -76,6 +77,7 @@ class OpenAICompatibleClient:
         self._sleep = sleep  # injectable so tests do not really wait
 
     async def complete(self, messages: list[Message]) -> LLMResponse:
+        set_tag("llm.provider", self.provider)  # the last one set is the one that handled the request
         started = time.monotonic()
         state = _CallState(model=self._model)
         try:
@@ -113,6 +115,7 @@ class OpenAICompatibleClient:
         Retries are only allowed before the first piece: once text has reached the
         caller it cannot be taken back, so a later failure is raised instead.
         """
+        set_tag("llm.provider", self.provider)
         started = time.monotonic()
         state = _CallState(model=self._model)
         sent_text = False
