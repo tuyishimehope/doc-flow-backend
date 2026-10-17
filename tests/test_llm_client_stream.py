@@ -1,4 +1,4 @@
-"""Streaming behaviour of the OpenRouter client. No network: the provider is faked."""
+"""Streaming behaviour of the OpenAI-compatible client. No network: the provider is faked."""
 
 import asyncio
 import logging
@@ -78,6 +78,7 @@ async def test_yields_pieces_then_a_done_event_and_asks_for_a_stream():
     done = events[2]
     assert isinstance(done, StreamDone)
     assert (done.model, done.input_tokens, done.output_tokens, done.attempts) == (MODEL, 11, 3, 1)
+    assert done.provider == "openrouter"
     assert isinstance(done.latency_ms, int) and isinstance(done.first_piece_ms, int)
     assert fake.last_kwargs["stream"] is True
     assert fake.last_kwargs["stream_options"] == {"include_usage": True}
@@ -148,7 +149,7 @@ async def test_a_stream_that_runs_too_long_is_cut_off():
 
 @pytest.mark.anyio
 async def test_closing_the_stream_early_closes_the_provider_and_logs_cancelled(caplog):
-    caplog.set_level(logging.INFO, logger="app.service.llm_client.openrouter")
+    caplog.set_level(logging.INFO, logger="app.service.llm_client.openai_compatible")
     provider_stream = FakeStream([piece("a"), piece("b")], hang=True)
     events = make_client(FakeOpenAI(provider_stream)).stream(MESSAGES)
 
@@ -162,7 +163,7 @@ async def test_closing_the_stream_early_closes_the_provider_and_logs_cancelled(c
 
 @pytest.mark.anyio
 async def test_cancelling_the_listener_closes_the_provider_stream(caplog):
-    caplog.set_level(logging.INFO, logger="app.service.llm_client.openrouter")
+    caplog.set_level(logging.INFO, logger="app.service.llm_client.openai_compatible")
     provider_stream = FakeStream([piece("a")], hang=True)
     client = make_client(FakeOpenAI(provider_stream))
     got_first_piece = asyncio.Event()
@@ -183,7 +184,7 @@ async def test_cancelling_the_listener_closes_the_provider_stream(caplog):
 
 @pytest.mark.anyio
 async def test_a_finished_stream_is_logged_once_with_time_to_first_piece(caplog):
-    caplog.set_level(logging.INFO, logger="app.service.llm_client.openrouter")
+    caplog.set_level(logging.INFO, logger="app.service.llm_client.openai_compatible")
     secret = SimpleNamespace(role="user", content="secret user text")
     await collect(make_client(FakeOpenAI(good_stream())))
 

@@ -4,12 +4,13 @@ import asyncio
 import json
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from app.api.v1.chat.router import get_chat_llm
+from app.api.v1.chat.router import get_llm_picker, get_session_factory
 from app.main import app
 from app.prompts import load_prompt
-from app.service.auth.auth import get_current_user
+from app.service.chat import conversation as conversation_module
+from app.service.chat.crud import get_messages
 from app.service.llm_client.llm_client import (
     LLMError,
     LLMRateLimitError,
@@ -67,10 +68,6 @@ class FakeStreamLLM:
             self.closed = True
 
 
-class FakeUser:
-    id = 1
-
-
 def parse_events(body: str) -> list[tuple[str, dict]]:
     events = []
     for block in body.strip().split("\n\n"):
@@ -81,23 +78,34 @@ def parse_events(body: str) -> list[tuple[str, dict]]:
     return events
 
 
+class SameSession:
+    """Lets the 'new session' used for saving be the test's own (rolled-back) session."""
+
+    def __init__(self, session) -> None:
+        self.session = session
+
+    def __call__(self):
+        return self
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *exc_info) -> bool:
+        return False
+
+
 @pytest.fixture
 def fake_llm() -> FakeStreamLLM:
     return FakeStreamLLM()
 
 
 @pytest.fixture
-def overrides(fake_llm: FakeStreamLLM):
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
-    app.dependency_overrides[get_current_user] = lambda: FakeUser()
-    yield
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-async def chat_client(overrides):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
+async def chat_client(client: AsyncClient, fake_llm: FakeStreamLLM, db_session, auth_headers):
+    """The shared test client, signed in, with the model replaced by a fake."""
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
+    app.dependency_overrides[get_session_factory] = lambda: SameSession(db_session)
+    client.headers.update(auth_headers)
+    return client
 
 
 @pytest.mark.anyio
@@ -108,12 +116,16 @@ async def test_streams_tokens_then_done(chat_client: AsyncClient):
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["cache-control"] == "no-cache"
     assert response.headers["x-accel-buffering"] == "no"
-    assert parse_events(response.text) == [
+    events = parse_events(response.text)
+    assert events[0][0] == "conversation"
+    assert isinstance(events[0][1]["conversation_id"], int)
+    assert events[1:] == [
         ("token", {"text": "Par"}),
         ("token", {"text": "is."}),
         (
             "done",
             {
+                "provider": "",
                 "model": "fake/model",
                 "input_tokens": 10,
                 "output_tokens": 2,
@@ -156,13 +168,9 @@ async def test_invalid_bodies_are_rejected_before_streaming_starts(chat_client, 
 
 
 @pytest.mark.anyio
-async def test_requires_authentication(fake_llm):
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
-    try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            response = await client.post(URL, json={"message": "hi"})
-    finally:
-        app.dependency_overrides.clear()
+async def test_requires_authentication(client: AsyncClient, fake_llm):
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
+    response = await client.post(URL, json={"message": "hi"})
     assert response.status_code == 401
     assert fake_llm.calls == []
 
@@ -204,7 +212,7 @@ async def test_failure_after_the_first_piece_becomes_an_error_event(chat_client,
 
     assert response.status_code == 200  # the status line was already sent
     events = parse_events(response.text)
-    assert [name for name, _ in events] == ["token", "token", "error"]
+    assert [name for name, _ in events] == ["conversation", "token", "token", "error"]
     assert events[-1][1]["code"] == "unavailable"
     assert events[-1][1]["message"]
     assert "secret" not in response.text
@@ -227,10 +235,12 @@ async def test_closing_the_stream_normally_closes_the_llm_stream(chat_client, fa
 
 
 @pytest.mark.anyio
-async def test_client_disconnect_stops_the_llm_stream(overrides):
+async def test_client_disconnect_stops_the_llm_stream_and_keeps_the_partial_answer(
+    chat_client, db_session, auth_headers
+):
     """Drive the app by hand: send the request, read one piece, then 'close the tab'."""
     fake = FakeStreamLLM(pieces=("Hello", " world"), hang_after_first=True)
-    app.dependency_overrides[get_chat_llm] = lambda: fake
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake)
 
     request_body = json.dumps({"message": "hi"}).encode()
     inbox = [{"type": "http.request", "body": request_body, "more_body": False}]
@@ -245,7 +255,7 @@ async def test_client_disconnect_stops_the_llm_stream(overrides):
 
     async def send(message):
         sent.append(message)
-        if message["type"] == "http.response.body" and message.get("body"):
+        if message["type"] == "http.response.body" and b"Hello" in message.get("body", b""):
             tab_closed.set()  # the first piece reached the browser, then the tab closes
 
     scope = {
@@ -262,11 +272,58 @@ async def test_client_disconnect_stops_the_llm_stream(overrides):
             (b"host", b"test"),
             (b"content-type", b"application/json"),
             (b"content-length", str(len(request_body)).encode()),
+            (b"authorization", auth_headers["Authorization"].encode()),
         ],
         "client": ("127.0.0.1", 50000),
         "server": ("test", 80),
     }
     await asyncio.wait_for(app(scope, receive, send), timeout=5)
+    if conversation_module._background:  # the save runs as its own task
+        await asyncio.wait_for(asyncio.gather(*conversation_module._background), timeout=5)
 
     assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
     assert fake.closed, "the model call kept running after the client left"
+
+    # The conversation event is the first thing sent, so the id is in the first body chunk.
+    first_chunk = next(m["body"] for m in sent if m["type"] == "http.response.body" and m.get("body"))
+    conversation_id = json.loads(first_chunk.decode().split("data: ")[1].split("\n")[0])["conversation_id"]
+    saved = await get_messages(conversation_id, db_session)
+    assert [(m.role, m.content, m.status) for m in saved] == [
+        ("user", "hi", "complete"),
+        ("assistant", "Hello", "cancelled"),
+    ]
+
+
+@pytest.mark.anyio
+async def test_the_chosen_model_reaches_the_picker_and_the_provider_is_reported(chat_client, fake_llm):
+    asked: list = []
+
+    def picker(model):
+        asked.append(model)
+        return fake_llm
+
+    app.dependency_overrides[get_llm_picker] = lambda: picker
+    response = await chat_client.post(URL, json={"message": "hi", "model": "groq"})
+
+    assert asked == ["groq"]
+    assert "provider" in parse_events(response.text)[-1][1]
+
+
+@pytest.mark.anyio
+async def test_a_model_that_is_not_available_creates_no_conversation(chat_client, monkeypatch):
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+    from app.service.llm_client.registry import get_llm_client
+
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", SecretStr("secret-key"))
+    monkeypatch.setattr(settings, "GROQ_AI_API_KEY", SecretStr(""))
+    get_llm_client.cache_clear()
+    del app.dependency_overrides[get_llm_picker]  # use the real picker
+
+    response = await chat_client.post(URL, json={"message": "hi", "model": "groq"})
+
+    assert response.status_code == 400
+    listing = await chat_client.get("/api/v1/chat/conversations")
+    assert listing.json()["total"] == 0
+    get_llm_client.cache_clear()

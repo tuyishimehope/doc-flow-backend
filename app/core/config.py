@@ -65,14 +65,41 @@ class Settings(BaseSettings):
     # "openrouter/free" lets OpenRouter pick any free model, so answers vary between
     # calls. Pin an exact model id here before relying on evals.
     CHAT_MODEL: str = "openrouter/free"
+    # Fallback providers, tried in this order when the one before them fails. They all
+    # speak the OpenAI protocol. A provider without a key is simply skipped.
+    GEMINI_AI_API_KEY: SecretStr = SecretStr("")
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    CHAT_GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GROQ_AI_API_KEY: SecretStr = SecretStr("")
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    CHAT_GROQ_MODEL: str = "openai/gpt-oss-20b"
+    # OPENAI_API_KEY is declared at the top (the document service uses it too). Chat
+    # uses it as the last resort, with its own, cheaper model.
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    CHAT_OPENAI_MODEL: str = "gpt-3.5-turbo"
     CHAT_TIMEOUT_SECONDS: float = Field(default=30, gt=0)  # per attempt
     CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=45, gt=0)  # all attempts together
     CHAT_MAX_RETRIES: int = Field(default=2, ge=0, le=5)
+    # A provider that has a fallback behind it should give up sooner than the last one,
+    # and the whole chain gets one time budget.
+    CHAT_FALLBACK_MAX_RETRIES: int = Field(default=1, ge=0, le=5)
+    CHAT_FALLBACK_TOTAL_TIMEOUT_SECONDS: float = Field(default=90, gt=0)
     # A streamed answer may be long, so it gets its own, larger limit. Silence between
     # two pieces is already capped by CHAT_TIMEOUT_SECONDS.
     CHAT_STREAM_TIMEOUT_SECONDS: float = Field(default=120, gt=0)
     CHAT_MAX_OUTPUT_TOKENS: int = Field(default=1024, gt=0)
     CHAT_RATE_LIMIT_PER_MINUTE: int = Field(default=20, gt=0)
+
+    # Sentry error and performance monitoring. Switched off while SENTRY_DSN is empty.
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = "development"
+    SENTRY_RELEASE: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.1, ge=0, le=1)
+    SENTRY_ENABLE_LOGS: bool = True
+    # How much of a conversation is sent back to the model: at most this many of the
+    # latest messages, and at most this many characters (oldest messages are dropped first).
+    CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
+    CHAT_HISTORY_MAX_CHARS: int = Field(default=12000, gt=0)
 
 
 def load_settings() -> Settings:

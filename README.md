@@ -224,6 +224,22 @@ Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must b
 
 `OPENAI_MODEL` selects the model, `OPENAI_TIMEOUT_SECONDS` bounds each API request, `OPENAI_MAX_INPUT_CHARS` limits extracted document text sent for processing, and `OPENAI_MAX_OUTPUT_TOKENS` caps generated output. The character and token limits help control request size but do not impose a fixed billing ceiling.
 
+### Monitoring with Sentry
+
+Error and performance monitoring is optional and stays off while `SENTRY_DSN` is empty. To turn it on, create a Python project in Sentry, copy its DSN into `.env`, and restart the API and the worker:
+
+```dotenv
+SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+What it reports: unhandled exceptions and HTTP 500 errors from the API and the Celery worker, plus an error when every chat provider has failed. Provider outages that were answered with 502, 503 or 504, and automatic failovers between providers, are expected and are not reported. Errors carry the numeric user id and the chat model choice and provider as tags.
+
+Logs: everything the app writes through the configured logger (`LOG_LEVEL`, default INFO) is also sent to Sentry Logs, with the same extra fields as the JSON line (`request_id`, `user_id`, `provider`, `status`, `latency_ms`, ...). ERROR logs also become error events. `uvicorn.access` is excluded because it prints full URLs with query strings. Set `SENTRY_ENABLE_LOGS=false` to stop sending logs.
+
+What it never receives: request bodies (chat messages), local variables, prompts and answers, cookies, the `Authorization` header, e-mail addresses and IP addresses. `SENTRY_TRACES_SAMPLE_RATE` is the share of requests that also send performance traces.
+
 If you run the API and worker inside Compose, use service names instead of host addresses:
 
 ```dotenv
@@ -343,8 +359,14 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/processing-requests/{id}/export?format=json\|csv` | Yes | Download the result as JSON or CSV |
 | POST | `/api/v1/processing-requests/{id}/cancel` | Yes | Cancel a request that has not started (409 otherwise) |
 | POST | `/api/v1/processing-requests/{id}/retry` | Yes | Queue a new request with the same settings as a failed or cancelled one (409 otherwise) |
-| POST | `/api/v1/chat` | Yes | Ask the assistant one question: body `{"message": "..."}` (1-4,000 characters after trimming). 422 for invalid input, 429 when rate limited, 503/504 when the AI provider is unavailable or slow |
-| POST | `/api/v1/chat/stream` | Yes | Same request as `/api/v1/chat`, answered as Server-Sent Events: `token` events (`{"text": "..."}`), then `done` (model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
+| POST | `/api/v1/chat` | Yes | Ask the assistant one question: body `{"message": "...", "model": "auto"}` (message 1-4,000 characters after trimming; `model` optional, see `GET /api/v1/chat/models`). 422 for invalid input, 429 when rate limited, 503/504 when the AI provider is unavailable or slow |
+| GET | `/api/v1/chat/models` | Yes | The values the `model` field accepts: `auto` (default, tries every configured provider in turn) plus each provider that has an API key. A chosen provider is tried first and the others still back it up; 400 if it is not configured, 422 for any name not on the list |
+| POST | `/api/v1/chat/stream` | Yes | Same message rules as `/api/v1/chat`, answered as Server-Sent Events and remembered: body `{"message": "...", "conversation_id": 12, "model": "groq"}` (`conversation_id` and `model` optional; omit it to start a new conversation). Events: `conversation` (`{"conversation_id"}`), `token` (`{"text"}`), then `done` (provider, model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes, 404 for a conversation that is not yours. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
+| POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
+| GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
+| GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
+| PATCH | `/api/v1/chat/conversations/{id}` | Yes | Rename: body `{"title": "..."}` |
+| DELETE | `/api/v1/chat/conversations/{id}` | Yes | Delete the conversation and its messages (204) |
 
 Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
 

@@ -10,16 +10,19 @@ from app.api.v1.document.document import router as document_router
 from app.api.v1.file.file import router as file_router
 from app.api.v1.auth.auth import router as auth_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
+from app.api.v1.chat.conversations import CONVERSATIONS_ROUTER
 from app.api.v1.chat.router import CHAT_ROUTER
 from app.db.engine import engine
 from app.core.minio import minio_client
 from app.core.config import settings
 from app.core.logging_config import configure_logging
+from app.core.observability import init_sentry
 from app.core.wait_for_dependencies import check_database, check_minio, check_redis, wait_for_dependencies
 
 
 logger = logging.getLogger(__name__)
 configure_logging()
+init_sentry()  # before the app is created, so the app is instrumented
 
 
 class StartResponse(BaseModel):
@@ -68,6 +71,7 @@ app.include_router(router=document_router)
 app.include_router(router=file_router)
 app.include_router(router=processing_request_router)
 app.include_router(router=CHAT_ROUTER)
+app.include_router(router=CONVERSATIONS_ROUTER)
 
 
 

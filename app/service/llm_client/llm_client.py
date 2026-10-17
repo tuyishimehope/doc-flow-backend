@@ -1,7 +1,8 @@
 """The contract the rest of the app depends on, independent of any provider.
 
-Routers and services import from here. Only ``openrouter.py`` knows about
-OpenRouter, so a second provider (Phase 4) means a new file, not a rewrite.
+Routers and services import from here. Only the client modules know about a
+provider's wire format, so adding a provider means a new entry in the registry,
+not a change to any caller.
 """
 
 from collections.abc import AsyncGenerator
@@ -22,6 +23,7 @@ class LLMResponse:
     output_tokens: int | None
     latency_ms: int
     attempts: int
+    provider: str = ""  # which provider answered (matters once there is a fallback)
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,7 @@ class StreamDone:
     latency_ms: int
     first_piece_ms: int  # the wait before anything appeared: what users feel most
     attempts: int
+    provider: str = ""
 
 
 StreamEvent = StreamDelta | StreamDone

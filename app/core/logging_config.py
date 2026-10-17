@@ -26,6 +26,7 @@ class JsonLogFormatter(logging.Formatter):
         "status",
         "latency_ms",
         "first_piece_ms",
+        "fallback_to",
         "input_tokens",
         "output_tokens",
         "attempts",

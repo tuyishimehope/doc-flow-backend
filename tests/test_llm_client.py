@@ -1,4 +1,4 @@
-"""Unit tests for the OpenRouter client: retries, timeouts, logging. No network."""
+"""Unit tests for the OpenAI-compatible client: retries, timeouts, logging. No network."""
 
 import asyncio
 import logging
@@ -14,17 +14,14 @@ from openai import (
     InternalServerError,
     RateLimitError,
 )
-from pydantic import SecretStr
 
-from app.core.config import settings
 from app.service.llm_client.llm_client import (
     LLMError,
-    LLMNotConfiguredError,
     LLMRateLimitError,
     LLMTimeoutError,
     LLMUnavailableError,
 )
-from app.service.llm_client.openrouter import OpenRouterClient, get_llm_client
+from app.service.llm_client.openai_compatible import OpenAICompatibleClient
 
 REQUEST = httpx.Request("POST", "https://openrouter.test/chat/completions")
 MESSAGES = [{"role": "user", "content": "secret user text"}]
@@ -75,7 +72,8 @@ def make_client(
         if sleeps is not None:
             sleeps.append(seconds)
 
-    return OpenRouterClient(
+    return OpenAICompatibleClient(
+        provider="openrouter",
         client=fake,  # type: ignore[arg-type]
         model="configured/model",
         timeout=1,
@@ -187,7 +185,7 @@ async def test_total_time_budget_stops_a_hanging_provider():
 
 @pytest.mark.anyio
 async def test_every_call_is_logged_once_without_the_message_text(caplog):
-    caplog.set_level(logging.INFO, logger="app.service.llm_client.openrouter")
+    caplog.set_level(logging.INFO, logger="app.service.llm_client.openai_compatible")
     await make_client(FakeOpenAI(completion())).complete(MESSAGES)
 
     records = [r for r in caplog.records if r.getMessage() == "LLM call finished"]
@@ -201,7 +199,7 @@ async def test_every_call_is_logged_once_without_the_message_text(caplog):
 
 @pytest.mark.anyio
 async def test_failed_calls_are_logged_with_their_status(caplog):
-    caplog.set_level(logging.INFO, logger="app.service.llm_client.openrouter")
+    caplog.set_level(logging.INFO, logger="app.service.llm_client.openai_compatible")
     fake = FakeOpenAI(*[APITimeoutError(request=REQUEST) for _ in range(3)])
     with pytest.raises(LLMTimeoutError):
         await make_client(fake).complete(MESSAGES)
@@ -210,9 +208,24 @@ async def test_failed_calls_are_logged_with_their_status(caplog):
     assert (final[0].status, final[0].attempts) == ("timeout", 3)
 
 
-def test_missing_api_key_is_reported_as_not_configured(monkeypatch):
-    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", SecretStr(""))
-    get_llm_client.cache_clear()
-    with pytest.raises(LLMNotConfiguredError):
-        get_llm_client()
-    get_llm_client.cache_clear()
+@pytest.mark.anyio
+async def test_the_answer_says_which_provider_gave_it():
+    result = await make_client(FakeOpenAI(completion())).complete(MESSAGES)
+    assert result.provider == "openrouter"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("cls", "code", "expected"),
+    [
+        (BadRequestError, 400, LLMError),  # Gemini's answer to an invalid key, Groq's to a retired model
+        (BadRequestError, 404, LLMError),  # the model was retired
+        (BadRequestError, 422, LLMError),
+        (AuthenticationError, 401, LLMUnavailableError),  # our key is wrong
+    ],
+)
+async def test_other_client_errors_are_not_retried_but_leave_room_for_a_fallback(cls, code, expected):
+    fake = FakeOpenAI(status_error(cls, code))
+    with pytest.raises(expected):
+        await make_client(fake).complete(MESSAGES)
+    assert fake.calls == 1  # retrying the same provider cannot help
