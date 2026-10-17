@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     CHAT_STREAM_TIMEOUT_SECONDS: float = Field(default=120, gt=0)
     CHAT_MAX_OUTPUT_TOKENS: int = Field(default=1024, gt=0)
     CHAT_RATE_LIMIT_PER_MINUTE: int = Field(default=20, gt=0)
+    # How much of a conversation is sent back to the model: at most this many of the
+    # latest messages, and at most this many characters (oldest messages are dropped first).
+    CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
+    CHAT_HISTORY_MAX_CHARS: int = Field(default=12000, gt=0)
 
 
 def load_settings() -> Settings:
