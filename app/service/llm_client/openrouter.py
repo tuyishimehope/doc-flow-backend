@@ -10,13 +10,14 @@ import asyncio
 import logging
 import random
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
 from openai import (
     APIConnectionError,
+    APIError,
     APIStatusError,
     APITimeoutError,
     AsyncOpenAI,
@@ -32,6 +33,9 @@ from app.service.llm_client.llm_client import (
     LLMTimeoutError,
     LLMUnavailableError,
     Message,
+    StreamDelta,
+    StreamDone,
+    StreamEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +50,7 @@ class _CallState:
     status: str = "error"
     input_tokens: int | None = None
     output_tokens: int | None = None
+    first_piece_ms: int | None = None
 
 
 class OpenRouterClient:
@@ -60,6 +65,7 @@ class OpenRouterClient:
         total_timeout: float,
         max_retries: int,
         max_output_tokens: int,
+        stream_timeout: float = 120,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._client = client
@@ -68,6 +74,7 @@ class OpenRouterClient:
         self._total_timeout = total_timeout
         self._max_retries = max_retries
         self._max_output_tokens = max_output_tokens
+        self._stream_timeout = stream_timeout
         self._sleep = sleep  # injectable so tests do not really wait
 
     async def complete(self, messages: list[Message]) -> LLMResponse:
@@ -101,7 +108,77 @@ class OpenRouterClient:
             attempts=state.attempts,
         )
 
+    async def stream(self, messages: list[Message]) -> AsyncGenerator[StreamEvent, None]:
+        """Yield text pieces as they arrive, then one ``StreamDone``.
+
+        Retries are only allowed before the first piece: once text has reached the
+        caller it cannot be taken back, so a later failure is raised instead.
+        """
+        started = time.monotonic()
+        state = _CallState(model=self._model)
+        sent_text = False
+        try:
+            for attempt in range(1, self._max_retries + 2):
+                state.attempts = attempt
+                try:
+                    response = await self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,  # type: ignore[arg-type]
+                        max_tokens=self._max_output_tokens,
+                        # Also the longest allowed silence between two pieces.
+                        timeout=self._timeout,
+                        stream=True,
+                        stream_options={"include_usage": True},
+                    )
+                    # `async with` closes the provider connection however we leave,
+                    # including when the caller stops listening halfway.
+                    async with response:
+                        async for chunk in response:
+                            state.model = getattr(chunk, "model", None) or state.model
+                            usage = getattr(chunk, "usage", None)
+                            if usage is not None:
+                                state.input_tokens = usage.prompt_tokens
+                                state.output_tokens = usage.completion_tokens
+                            text = _delta_text(chunk)
+                            if not sent_text:
+                                text = text.lstrip()  # models often start with blank lines
+                            if not text:
+                                continue  # role-only chunks and the final usage chunk
+                            if time.monotonic() - started > self._stream_timeout:
+                                raise LLMTimeoutError("Stream exceeded its maximum duration")
+                            if not sent_text:
+                                sent_text = True
+                                state.first_piece_ms = _elapsed_ms(started)
+                            yield StreamDelta(text)
+                    if not sent_text:
+                        raise LLMError("Provider returned an empty answer")
+                    break
+                except APIError as exc:
+                    await self._sleep(
+                        self._plan_retry(exc, attempt, started, can_retry=not sent_text)
+                    )
+            state.status = "ok"
+            yield StreamDone(
+                model=state.model,
+                input_tokens=state.input_tokens,
+                output_tokens=state.output_tokens,
+                latency_ms=_elapsed_ms(started),
+                first_piece_ms=state.first_piece_ms or 0,
+                attempts=state.attempts,
+            )
+        except (asyncio.CancelledError, GeneratorExit):
+            # The listener went away (closed tab, shutdown). Not an error.
+            if state.status != "ok":
+                state.status = "cancelled"
+            raise
+        except LLMError as exc:
+            state.status = exc.status
+            raise
+        finally:
+            self._log(state, started)
+
     async def _request_with_retries(self, messages: list[Message], state: _CallState) -> Any:
+        started = time.monotonic()
         for attempt in range(1, self._max_retries + 2):
             state.attempts = attempt
             try:
@@ -112,33 +189,45 @@ class OpenRouterClient:
                     timeout=self._timeout,
                 )
             except (APIConnectionError, APIStatusError) as exc:
-                error, retryable, suggested_delay = _classify(exc)
-                delay = suggested_delay if suggested_delay is not None else _backoff(attempt)
-                out_of_attempts = attempt > self._max_retries
-                if not retryable or out_of_attempts or delay > MAX_BACKOFF_SECONDS:
-                    raise error from exc
-                logger.warning(
-                    "LLM call failed, retrying",
-                    extra={
-                        "provider": self.provider,
-                        "model": self._model,
-                        "status": error.status,
-                        "attempts": attempt,
-                    },
-                )
-                await self._sleep(delay)
+                await self._sleep(self._plan_retry(exc, attempt, started))
         raise LLMError("Retry loop ended without a result")  # pragma: no cover
+
+    def _plan_retry(
+        self, exc: APIError, attempt: int, started: float, *, can_retry: bool = True
+    ) -> float:
+        """Return how long to wait before the next attempt, or raise the mapped error."""
+        error, retryable, suggested_delay = _classify(exc)
+        delay = suggested_delay if suggested_delay is not None else _backoff(attempt)
+        out_of_time = (time.monotonic() - started) + delay > self._total_timeout
+        if (
+            not (can_retry and retryable)
+            or attempt > self._max_retries
+            or delay > MAX_BACKOFF_SECONDS
+            or out_of_time
+        ):
+            raise error from exc
+        logger.warning(
+            "LLM call failed, retrying",
+            extra={
+                "provider": self.provider,
+                "model": self._model,
+                "status": error.status,
+                "attempts": attempt,
+            },
+        )
+        return delay
 
     def _log(self, state: _CallState, started: float) -> None:
         # One record per call. The message text is never logged, only metadata.
         logger.log(
-            logging.INFO if state.status == "ok" else logging.WARNING,
+            logging.INFO if state.status in ("ok", "cancelled") else logging.WARNING,
             "LLM call finished",
             extra={
                 "provider": self.provider,
                 "model": state.model,
                 "status": state.status,
                 "latency_ms": _elapsed_ms(started),
+                "first_piece_ms": state.first_piece_ms,
                 "input_tokens": state.input_tokens,
                 "output_tokens": state.output_tokens,
                 "attempts": state.attempts,
@@ -146,22 +235,24 @@ class OpenRouterClient:
         )
 
 
-def _classify(exc: APIConnectionError | APIStatusError) -> tuple[LLMError, bool, float | None]:
+def _classify(exc: APIError) -> tuple[LLMError, bool, float | None]:
     """Return (error to raise, whether to retry, delay the server asked for)."""
     if isinstance(exc, APITimeoutError):
         return LLMTimeoutError("Provider call timed out"), True, None
     if isinstance(exc, APIConnectionError):
         return LLMUnavailableError("Provider unreachable"), True, None
-    assert isinstance(exc, APIStatusError)
     if isinstance(exc, RateLimitError):
         delay = _retry_after_seconds(exc)
         return LLMRateLimitError("Provider rate limit", retry_after=delay), True, delay
-    code = exc.status_code
-    if code == 408 or code >= 500:
-        return LLMUnavailableError(f"Provider error {code}"), True, None
-    if code in (401, 402, 403):  # bad key or no credit: retrying cannot help
-        return LLMUnavailableError(f"Provider refused our credentials or credit ({code})"), False, None
-    return LLMError(f"Provider rejected the request ({code})"), False, None
+    if isinstance(exc, APIStatusError):
+        code = exc.status_code
+        if code == 408 or code >= 500:
+            return LLMUnavailableError(f"Provider error {code}"), True, None
+        if code in (401, 402, 403):  # bad key or no credit: retrying cannot help
+            return LLMUnavailableError(f"Provider refused our credentials or credit ({code})"), False, None
+        return LLMError(f"Provider rejected the request ({code})"), False, None
+    # A plain APIError is how the SDK reports an error event inside an open stream.
+    return LLMUnavailableError("Provider reported an error while streaming"), True, None
 
 
 def _retry_after_seconds(exc: APIStatusError) -> float | None:
@@ -183,6 +274,13 @@ def _extract_text(completion: Any) -> str:
     if not text or not text.strip():
         raise LLMError("Provider returned an empty answer")
     return text.strip()
+
+
+def _delta_text(chunk: Any) -> str:
+    choices = getattr(chunk, "choices", None)
+    if not choices:  # the last chunk only carries the token counts
+        return ""
+    return getattr(choices[0].delta, "content", None) or ""
 
 
 def _elapsed_ms(started: float) -> int:
@@ -207,4 +305,5 @@ def get_llm_client() -> OpenRouterClient:
         total_timeout=settings.CHAT_TOTAL_TIMEOUT_SECONDS,
         max_retries=settings.CHAT_MAX_RETRIES,
         max_output_tokens=settings.CHAT_MAX_OUTPUT_TOKENS,
+        stream_timeout=settings.CHAT_STREAM_TIMEOUT_SECONDS,
     )

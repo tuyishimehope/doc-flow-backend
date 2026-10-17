@@ -25,6 +25,7 @@ class JsonLogFormatter(logging.Formatter):
         "model",
         "status",
         "latency_ms",
+        "first_piece_ms",
         "input_tokens",
         "output_tokens",
         "attempts",
