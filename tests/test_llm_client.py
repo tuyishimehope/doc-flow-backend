@@ -49,10 +49,12 @@ class FakeOpenAI:
     def __init__(self, *script):
         self.script = list(script)
         self.calls = 0
+        self.last_kwargs: dict = {}
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     async def _create(self, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -61,7 +63,14 @@ class FakeOpenAI:
         return item
 
 
-def make_client(fake: FakeOpenAI, *, max_retries: int = 2, total_timeout: float = 5, sleeps: list | None = None):
+def make_client(
+    fake: FakeOpenAI,
+    *,
+    max_retries: int = 2,
+    total_timeout: float = 5,
+    stream_timeout: float = 120,
+    sleeps: list | None = None,
+):
     async def fake_sleep(seconds: float) -> None:
         if sleeps is not None:
             sleeps.append(seconds)
@@ -73,6 +82,7 @@ def make_client(fake: FakeOpenAI, *, max_retries: int = 2, total_timeout: float 
         total_timeout=total_timeout,
         max_retries=max_retries,
         max_output_tokens=100,
+        stream_timeout=stream_timeout,
         sleep=fake_sleep,
     )
 
