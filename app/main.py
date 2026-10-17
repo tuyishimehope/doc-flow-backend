@@ -16,11 +16,13 @@ from app.db.engine import engine
 from app.core.minio import minio_client
 from app.core.config import settings
 from app.core.logging_config import configure_logging
+from app.core.observability import init_sentry
 from app.core.wait_for_dependencies import check_database, check_minio, check_redis, wait_for_dependencies
 
 
 logger = logging.getLogger(__name__)
 configure_logging()
+init_sentry()  # before the app is created, so the app is instrumented
 
 
 class StartResponse(BaseModel):

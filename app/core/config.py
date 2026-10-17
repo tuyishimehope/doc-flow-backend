@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     CHAT_STREAM_TIMEOUT_SECONDS: float = Field(default=120, gt=0)
     CHAT_MAX_OUTPUT_TOKENS: int = Field(default=1024, gt=0)
     CHAT_RATE_LIMIT_PER_MINUTE: int = Field(default=20, gt=0)
+
+    # Sentry error and performance monitoring. Switched off while SENTRY_DSN is empty.
+    SENTRY_DSN: str = ""
+    SENTRY_ENVIRONMENT: str = "development"
+    SENTRY_RELEASE: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.1, ge=0, le=1)
+    SENTRY_ENABLE_LOGS: bool = True
     # How much of a conversation is sent back to the model: at most this many of the
     # latest messages, and at most this many characters (oldest messages are dropped first).
     CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
