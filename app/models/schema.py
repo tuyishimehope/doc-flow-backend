@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import String, Text, JSON, Float, Integer, ForeignKey, Index, DateTime, and_, func
+from sqlalchemy import String, Text, JSON, Float, Integer, ForeignKey, Index, DateTime, CheckConstraint, and_, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -193,3 +193,60 @@ class PasswordResetToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="reset_tokens")
+
+
+class Conversation(Base):
+    """One chat thread. Only its owner may read or change it."""
+
+    __tablename__ = "conversation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Bumped whenever a message is added, so "most recent chat first" works.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    messages: Mapped[List["Message"]] = relationship(
+        "Message",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Message.id",
+    )
+
+    __table_args__ = (
+        Index("ix_conversation_user_id_updated_at", "user_id", "updated_at"),
+    )
+
+
+class Message(Base):
+    __tablename__ = "message"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversation.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # complete | cancelled | error. Only "complete" messages are sent back to the model.
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="complete", server_default="complete")
+    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Room for token counts now and for document citations later.
+    meta: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    conversation: Mapped["Conversation"] = relationship(
+        "Conversation", back_populates="messages")
+
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'assistant')", name="ck_message_role"),
+        CheckConstraint(
+            "status IN ('complete', 'cancelled', 'error')", name="ck_message_status"),
+        # "The last N messages of a conversation" is the hot query.
+        Index("ix_message_conversation_id_id", "conversation_id", "id"),
+    )
