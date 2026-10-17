@@ -6,12 +6,26 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.chat.schema import ChatRequest, ChatResponse
+from app.api.v1.chat.schema import ChatRequest, ChatResponse, StreamChatRequest
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
+from app.db.dependencies import get_db_session
+from app.db.session import SessionLocal
+from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
-from app.service.chat.chat import answer_message, stream_answer
+from app.service.chat.chat import answer_message, auto_title, stream_answer, trim_history
+from app.service.chat.conversation import SessionFactory, save_while_streaming
+from app.service.chat.crud import (
+    add_message,
+    count_messages,
+    create_conversation,
+    get_conversation,
+    get_recent_messages,
+    rename_conversation,
+)
+from app.service.chat.schema import DEFAULT_TITLE, MessageRole
 from app.service.llm_client.llm_client import (
     LLMClient,
     LLMError,
@@ -45,6 +59,11 @@ def get_chat_llm() -> LLMClient:
     except LLMNotConfiguredError:
         logger.error("Chat is disabled because OPENROUTER_API_KEY is not set")
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE) from None
+
+
+def get_session_factory() -> SessionFactory:
+    """The streaming answer is saved with its own session, because the request's is gone."""
+    return SessionLocal
 
 
 def to_http_error(exc: LLMError) -> HTTPException:
@@ -96,19 +115,40 @@ async def chat_endpoint(
     response_class=StreamingResponse,
     responses={
         **ERROR_RESPONSES,
+        404: {"description": "The conversation does not exist or belongs to someone else"},
         200: {
-            "description": "Server-Sent Events: `token`, then `done` or `error`",
+            "description": (
+                "Server-Sent Events: `conversation`, then `token`s, then `done` or `error`"
+            ),
             "content": {"text/event-stream": {"schema": {"type": "string"}}},
         },
     },
 )
 async def chat_stream_endpoint(
-    body: ChatRequest,
+    body: StreamChatRequest,
     current_user: CurrentUser,
     llm: Annotated[LLMClient, Depends(get_chat_llm)],
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+    session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> StreamingResponse:
     await _rate_limit(current_user)
-    events = stream_answer(body.message, llm)
+    conversation = await _conversation_for(body, current_user.id, db_session)
+
+    # The earlier turns come first; the new message is saved right after, so it
+    # is never lost even if the model call fails or the server dies.
+    earlier = await get_recent_messages(conversation.id, settings.CHAT_HISTORY_MESSAGES, db_session)
+    history = trim_history(
+        [{"role": m.role, "content": m.content} for m in earlier],  # type: ignore[misc]
+        settings.CHAT_HISTORY_MAX_CHARS,
+    )
+    await add_message(
+        conversation_id=conversation.id,
+        role=MessageRole.USER,
+        content=body.message,
+        db_session=db_session,
+    )
+
+    events = stream_answer(body.message, llm, history)
     # Wait for the first piece *before* answering. Until then a failure can still
     # be a real HTTP status (503, 504...). After it, the 200 is already on the wire.
     try:
@@ -118,7 +158,7 @@ async def chat_stream_endpoint(
     except StopAsyncIteration:
         raise to_http_error(LLMError("Stream ended without any event")) from None
     return StreamingResponse(
-        _event_stream(first, events),
+        _event_stream(conversation.id, first, events, session_factory),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -127,12 +167,31 @@ async def chat_stream_endpoint(
     )
 
 
+async def _conversation_for(
+    body: StreamChatRequest, user_id: int, db_session: AsyncSession
+) -> Conversation:
+    if body.conversation_id is None:
+        return await create_conversation(user_id, auto_title(body.message), db_session)
+    conversation = await get_conversation(body.conversation_id, user_id, db_session)
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    if conversation.title == DEFAULT_TITLE and await count_messages(conversation.id, db_session) == 0:
+        conversation = await rename_conversation(conversation, auto_title(body.message), db_session)
+    return conversation
+
+
 async def _event_stream(
-    first: StreamEvent, rest: AsyncGenerator[StreamEvent, None]
+    conversation_id: int,
+    first: StreamEvent,
+    rest: AsyncGenerator[StreamEvent, None],
+    session_factory: SessionFactory,
 ) -> AsyncIterator[str]:
+    saving = save_while_streaming(
+        first, rest, conversation_id=conversation_id, session_factory=session_factory
+    )
     try:
-        yield _format(first)
-        async for event in rest:
+        yield _sse("conversation", {"conversation_id": conversation_id})
+        async for event in saving:
             yield _format(event)
     except LLMError as exc:
         # The status line is gone, so the failure travels as an event instead.
@@ -141,9 +200,9 @@ async def _event_stream(
         logger.exception("Unexpected failure while streaming a chat answer")
         yield _sse("error", {"code": "error", "message": "Something went wrong. Please try again."})
     finally:
-        # Also runs when the client disconnects (the task is cancelled here), so the
-        # provider connection is closed and we stop paying for words nobody reads.
-        await rest.aclose()
+        # Also runs when the client disconnects: the provider connection is closed
+        # and the part of the answer written so far is saved as "cancelled".
+        await saving.aclose()
 
 
 def _format(event: StreamEvent) -> str:
