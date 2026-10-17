@@ -21,6 +21,13 @@ class JsonLogFormatter(logging.Formatter):
         "image_width",
         "image_height",
         "bucket_name",
+        "provider",
+        "model",
+        "status",
+        "latency_ms",
+        "input_tokens",
+        "output_tokens",
+        "attempts",
     )
 
     def format(self, record: logging.LogRecord) -> str:

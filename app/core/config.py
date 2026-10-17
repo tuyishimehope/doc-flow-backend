@@ -59,6 +59,18 @@ class Settings(BaseSettings):
     # Email the document owner when processing completes or finally fails.
     processing_email_enabled: bool = True
 
+    # Chat (OpenRouter). An empty key disables chat: POST /api/v1/chat answers 503.
+    OPENROUTER_API_KEY: SecretStr = SecretStr("")
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    # "openrouter/free" lets OpenRouter pick any free model, so answers vary between
+    # calls. Pin an exact model id here before relying on evals.
+    CHAT_MODEL: str = "openrouter/free"
+    CHAT_TIMEOUT_SECONDS: float = Field(default=30, gt=0)  # per attempt
+    CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=45, gt=0)  # all attempts together
+    CHAT_MAX_RETRIES: int = Field(default=2, ge=0, le=5)
+    CHAT_MAX_OUTPUT_TOKENS: int = Field(default=1024, gt=0)
+    CHAT_RATE_LIMIT_PER_MINUTE: int = Field(default=20, gt=0)
+
 
 def load_settings() -> Settings:
     try:
