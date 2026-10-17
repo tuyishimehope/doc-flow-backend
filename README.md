@@ -343,6 +343,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/processing-requests/{id}/export?format=json\|csv` | Yes | Download the result as JSON or CSV |
 | POST | `/api/v1/processing-requests/{id}/cancel` | Yes | Cancel a request that has not started (409 otherwise) |
 | POST | `/api/v1/processing-requests/{id}/retry` | Yes | Queue a new request with the same settings as a failed or cancelled one (409 otherwise) |
+| POST | `/api/v1/chat` | Yes | Ask the assistant one question: body `{"message": "..."}` (1-4,000 characters after trimming). 422 for invalid input, 429 when rate limited, 503/504 when the AI provider is unavailable or slow |
 
 Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
 

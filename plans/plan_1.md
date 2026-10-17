@@ -6,13 +6,13 @@
 - [x] FastAPI project, API keys in `.env`, `GET /health`
 
 ### Phase 1 · One question, one answer
-- [ ] `POST /chat` receives `{ "message": "..." }`
-- [ ] Validate: trimmed, not empty, max 4,000 characters
-- [ ] `LLMClient` interface with ONE provider (OpenRouter)
-- [ ] Send system prompt + message → return the answer
-- [ ] Handle failures: timeout (30s), rate limit (429) → retry, then a clear error
-- [ ] Log every call: model, latency, tokens in/out, status
-- [ ] Tests: validation + LLM mocked
+- [x] `POST /chat` receives `{ "message": "..." }`
+- [x] Validate: trimmed, not empty, max 4,000 characters
+- [x] `LLMClient` interface with ONE provider (OpenRouter)
+- [x] Send system prompt + message → return the answer
+- [x] Handle failures: timeout (30s), rate limit (429) → retry, then a clear error
+- [x] Log every call: model, latency, tokens in/out, status
+- [x] Tests: validation + LLM mocked
 
 ### Phase 2 · Streaming
 - [ ] Send the answer word by word (Server-Sent Events)
