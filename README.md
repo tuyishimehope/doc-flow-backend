@@ -224,6 +224,22 @@ Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must b
 
 `OPENAI_MODEL` selects the model, `OPENAI_TIMEOUT_SECONDS` bounds each API request, `OPENAI_MAX_INPUT_CHARS` limits extracted document text sent for processing, and `OPENAI_MAX_OUTPUT_TOKENS` caps generated output. The character and token limits help control request size but do not impose a fixed billing ceiling.
 
+### Monitoring with Sentry
+
+Error and performance monitoring is optional and stays off while `SENTRY_DSN` is empty. To turn it on, create a Python project in Sentry, copy its DSN into `.env`, and restart the API and the worker:
+
+```dotenv
+SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+What it reports: unhandled exceptions and HTTP 500 errors from the API and the Celery worker, plus an error when every chat provider has failed. Provider outages that were answered with 502, 503 or 504, and automatic failovers between providers, are expected and are not reported. Errors carry the numeric user id and the chat model choice and provider as tags.
+
+Logs: everything the app writes through the configured logger (`LOG_LEVEL`, default INFO) is also sent to Sentry Logs, with the same extra fields as the JSON line (`request_id`, `user_id`, `provider`, `status`, `latency_ms`, ...). ERROR logs also become error events. `uvicorn.access` is excluded because it prints full URLs with query strings. Set `SENTRY_ENABLE_LOGS=false` to stop sending logs.
+
+What it never receives: request bodies (chat messages), local variables, prompts and answers, cookies, the `Authorization` header, e-mail addresses and IP addresses. `SENTRY_TRACES_SAMPLE_RATE` is the share of requests that also send performance traces.
+
 If you run the API and worker inside Compose, use service names instead of host addresses:
 
 ```dotenv
