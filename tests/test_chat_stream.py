@@ -6,7 +6,7 @@ import json
 import pytest
 from httpx import AsyncClient
 
-from app.api.v1.chat.router import get_chat_llm, get_session_factory
+from app.api.v1.chat.router import get_llm_picker, get_session_factory
 from app.main import app
 from app.prompts import load_prompt
 from app.service.chat import conversation as conversation_module
@@ -102,7 +102,7 @@ def fake_llm() -> FakeStreamLLM:
 @pytest.fixture
 async def chat_client(client: AsyncClient, fake_llm: FakeStreamLLM, db_session, auth_headers):
     """The shared test client, signed in, with the model replaced by a fake."""
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
     app.dependency_overrides[get_session_factory] = lambda: SameSession(db_session)
     client.headers.update(auth_headers)
     return client
@@ -125,6 +125,7 @@ async def test_streams_tokens_then_done(chat_client: AsyncClient):
         (
             "done",
             {
+                "provider": "",
                 "model": "fake/model",
                 "input_tokens": 10,
                 "output_tokens": 2,
@@ -168,7 +169,7 @@ async def test_invalid_bodies_are_rejected_before_streaming_starts(chat_client, 
 
 @pytest.mark.anyio
 async def test_requires_authentication(client: AsyncClient, fake_llm):
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
     response = await client.post(URL, json={"message": "hi"})
     assert response.status_code == 401
     assert fake_llm.calls == []
@@ -239,7 +240,7 @@ async def test_client_disconnect_stops_the_llm_stream_and_keeps_the_partial_answ
 ):
     """Drive the app by hand: send the request, read one piece, then 'close the tab'."""
     fake = FakeStreamLLM(pieces=("Hello", " world"), hang_after_first=True)
-    app.dependency_overrides[get_chat_llm] = lambda: fake
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake)
 
     request_body = json.dumps({"message": "hi"}).encode()
     inbox = [{"type": "http.request", "body": request_body, "more_body": False}]
@@ -291,3 +292,38 @@ async def test_client_disconnect_stops_the_llm_stream_and_keeps_the_partial_answ
         ("user", "hi", "complete"),
         ("assistant", "Hello", "cancelled"),
     ]
+
+
+@pytest.mark.anyio
+async def test_the_chosen_model_reaches_the_picker_and_the_provider_is_reported(chat_client, fake_llm):
+    asked: list = []
+
+    def picker(model):
+        asked.append(model)
+        return fake_llm
+
+    app.dependency_overrides[get_llm_picker] = lambda: picker
+    response = await chat_client.post(URL, json={"message": "hi", "model": "groq"})
+
+    assert asked == ["groq"]
+    assert "provider" in parse_events(response.text)[-1][1]
+
+
+@pytest.mark.anyio
+async def test_a_model_that_is_not_available_creates_no_conversation(chat_client, monkeypatch):
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+    from app.service.llm_client.registry import get_llm_client
+
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", SecretStr("secret-key"))
+    monkeypatch.setattr(settings, "GROQ_AI_API_KEY", SecretStr(""))
+    get_llm_client.cache_clear()
+    del app.dependency_overrides[get_llm_picker]  # use the real picker
+
+    response = await chat_client.post(URL, json={"message": "hi", "model": "groq"})
+
+    assert response.status_code == 400
+    listing = await chat_client.get("/api/v1/chat/conversations")
+    assert listing.json()["total"] == 0
+    get_llm_client.cache_clear()

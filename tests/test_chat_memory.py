@@ -124,7 +124,7 @@ async def test_saves_the_full_answer_before_the_done_event_goes_out(recorder):
     assert seen == ["StreamDelta", "StreamDelta", "StreamDone"]
     saved = recorder.saved[0]
     assert (saved["conversation_id"], saved["text"], saved["status"], saved["model"]) == (7, "Paris.", MessageStatus.COMPLETE, "m")
-    assert saved["meta"] == {"input_tokens": 5, "output_tokens": 2, "latency_ms": 30, "first_piece_ms": 10}
+    assert saved["meta"] == {"provider": "", "input_tokens": 5, "output_tokens": 2, "latency_ms": 30, "first_piece_ms": 10}
 
 
 @pytest.mark.anyio

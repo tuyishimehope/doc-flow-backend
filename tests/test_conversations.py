@@ -6,7 +6,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import update
 
-from app.api.v1.chat.router import get_chat_llm
+from app.api.v1.chat.router import get_llm_picker
 from app.core.config import settings
 from app.main import app
 from app.models.schema import Conversation
@@ -169,7 +169,7 @@ async def chat(client, chat_client_llm, db_session, auth_headers):
     from app.api.v1.chat.router import get_session_factory
     from tests.test_chat_stream import SameSession
 
-    app.dependency_overrides[get_chat_llm] = lambda: chat_client_llm
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: chat_client_llm)
     app.dependency_overrides[get_session_factory] = lambda: SameSession(db_session)
     return client
 
@@ -190,7 +190,7 @@ async def test_a_new_question_creates_a_titled_conversation_and_stores_both_mess
     ]
     assert detail["messages"][1]["model"] == "fake/model"
     stored = await get_messages(conversation_id, db_session)
-    assert stored[1].meta == {"input_tokens": 10, "output_tokens": 2, "latency_ms": 50, "first_piece_ms": 20}
+    assert stored[1].meta == {"provider": "", "input_tokens": 10, "output_tokens": 2, "latency_ms": 50, "first_piece_ms": 20}
 
 
 @pytest.mark.anyio

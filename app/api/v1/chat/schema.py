@@ -4,6 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.service.chat.schema import MAX_TITLE_CHARS
+from app.service.llm_client.registry import ModelChoice
 
 MAX_MESSAGE_CHARS = 4000
 
@@ -20,6 +21,9 @@ class ChatRequest(BaseModel):
         str,
         StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MESSAGE_CHARS),
     ]
+    # Which provider to try first. Only names from the allowlist are accepted, never a
+    # raw model name, so a caller cannot pick an expensive model we did not offer.
+    model: ModelChoice | None = None
 
 
 class ChatResponse(BaseModel):
@@ -74,3 +78,14 @@ class PaginatedConversationResponse(BaseModel):
     skip: int
     limit: int
     has_more: bool
+
+
+class ModelOption(BaseModel):
+    id: str
+    label: str
+    model: str | None
+
+
+class ModelsResponse(BaseModel):
+    default: str
+    models: list[ModelOption]

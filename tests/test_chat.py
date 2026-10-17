@@ -3,7 +3,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.api.v1.chat.router import get_chat_llm
+from app.api.v1.chat.router import get_llm_picker
 from app.main import app
 from app.prompts import load_prompt
 from app.service.auth.auth import get_current_user
@@ -50,7 +50,7 @@ def fake_llm() -> FakeLLM:
 
 @pytest.fixture
 async def chat_client(fake_llm: FakeLLM):
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
     app.dependency_overrides[get_current_user] = lambda: FakeUser()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
@@ -152,7 +152,7 @@ async def test_rate_limited_response_tells_the_client_when_to_retry(chat_client:
 
 @pytest.mark.anyio
 async def test_requires_authentication(fake_llm: FakeLLM):
-    app.dependency_overrides[get_chat_llm] = lambda: fake_llm
+    app.dependency_overrides[get_llm_picker] = lambda: (lambda model: fake_llm)
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(URL, json={"message": "hi"})

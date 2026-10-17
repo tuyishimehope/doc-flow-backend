@@ -83,6 +83,7 @@ async def save_while_streaming(
                     MessageStatus.COMPLETE,
                     model=event.model,
                     meta={
+                        "provider": event.provider,
                         "input_tokens": event.input_tokens,
                         "output_tokens": event.output_tokens,
                         "latency_ms": event.latency_ms,

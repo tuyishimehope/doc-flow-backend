@@ -1,14 +1,14 @@
 import json
 import logging
 import math
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.chat.schema import ChatRequest, ChatResponse, StreamChatRequest
+from app.api.v1.chat.schema import ChatRequest, ChatResponse, ModelsResponse, StreamChatRequest
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
 from app.db.dependencies import get_db_session
@@ -37,7 +37,7 @@ from app.service.llm_client.llm_client import (
     StreamDone,
     StreamEvent,
 )
-from app.service.llm_client.openrouter import get_llm_client
+from app.service.llm_client.registry import AUTO, ModelUnavailableError, get_llm_client, list_models
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,24 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def get_chat_llm() -> LLMClient:
-    try:
-        return get_llm_client()
-    except LLMNotConfiguredError:
-        logger.error("Chat is disabled because OPENROUTER_API_KEY is not set")
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE) from None
+LLMPicker = Callable[[str | None], LLMClient]
+
+
+def get_llm_picker() -> LLMPicker:
+    """Returns the function that turns the request's ``model`` into an LLM client."""
+
+    def pick(model: str | None) -> LLMClient:
+        try:
+            return get_llm_client(model)
+        except LLMNotConfiguredError:
+            logger.error("Chat is disabled because no LLM provider API key is set")
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE) from None
+        except ModelUnavailableError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="That model is not available right now."
+            ) from None
+
+    return pick
 
 
 def get_session_factory() -> SessionFactory:
@@ -96,13 +108,20 @@ async def _rate_limit(current_user: CurrentUser) -> None:
     )
 
 
+@CHAT_ROUTER.get("/models", response_model=ModelsResponse)
+async def models_endpoint(current_user: CurrentUser) -> ModelsResponse:
+    """The choices for the ``model`` field of a chat request."""
+    return ModelsResponse(default=AUTO, models=list_models())  # type: ignore[arg-type]
+
+
 @CHAT_ROUTER.post("", response_model=ChatResponse, responses=ERROR_RESPONSES)
 async def chat_endpoint(
     body: ChatRequest,
     current_user: CurrentUser,
-    llm: Annotated[LLMClient, Depends(get_chat_llm)],
+    pick_llm: Annotated[LLMPicker, Depends(get_llm_picker)],
 ) -> ChatResponse:
     await _rate_limit(current_user)
+    llm = pick_llm(body.model)
     try:
         result = await answer_message(body.message, llm)
     except LLMError as exc:
@@ -127,11 +146,12 @@ async def chat_endpoint(
 async def chat_stream_endpoint(
     body: StreamChatRequest,
     current_user: CurrentUser,
-    llm: Annotated[LLMClient, Depends(get_chat_llm)],
+    pick_llm: Annotated[LLMPicker, Depends(get_llm_picker)],
     db_session: Annotated[AsyncSession, Depends(get_db_session)],
     session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> StreamingResponse:
     await _rate_limit(current_user)
+    llm = pick_llm(body.model)  # before any database work, so a bad choice creates nothing
     conversation = await _conversation_for(body, current_user.id, db_session)
 
     # The earlier turns come first; the new message is saved right after, so it
@@ -212,6 +232,7 @@ def _format(event: StreamEvent) -> str:
     return _sse(
         "done",
         {
+            "provider": event.provider,
             "model": event.model,
             "input_tokens": event.input_tokens,
             "output_tokens": event.output_tokens,
