@@ -8,16 +8,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-    
+
     secret_key: SecretStr
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    
+
     app_name: str
 
     broker_host: str
     broker_backend: str
-
 
     OPENAI_API_KEY: str
     OPENAI_MODEL: str = "gpt-5.5"
@@ -42,7 +41,6 @@ class Settings(BaseSettings):
 
     DATABASE_URL_TEST: str
 
-    
     reset_token_expire_minutes: int = 60
 
     mail_server: str = "localhost"
@@ -60,13 +58,16 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     # Email the document owner when processing completes or finally fails.
     processing_email_enabled: bool = True
-    
-    
+
+
 def load_settings() -> Settings:
     try:
-        return Settings()
+        # Pylance may flag the constructor as needing explicit args even though
+        # BaseSettings reads required values from the environment at runtime.
+        return Settings()  # type: ignore[call-arg]
     except ValidationError as exc:
-        fields = sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()})
+        fields = sorted({".".join(str(part)
+                        for part in error["loc"]) for error in exc.errors()})
         details = ", ".join(fields)
         raise RuntimeError(
             "Application configuration is invalid. Check the required values in .env; "
