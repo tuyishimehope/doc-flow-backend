@@ -1,9 +1,10 @@
-"""OpenRouter implementation of ``LLMClient``.
+"""``LLMClient`` for every provider that speaks the OpenAI wire format.
 
-OpenRouter speaks the OpenAI wire format, so we reuse the OpenAI SDK with a
-different ``base_url``. The SDK's own retries are switched off (``max_retries=0``)
-so this class is the single place that decides what is retried, how long to wait
-and how long the caller may be kept waiting.
+OpenRouter, Google Gemini, Groq and OpenAI all accept the same request, so one class
+serves them all: only ``base_url``, the key, the model name and the ``provider`` label
+differ. The SDK's own retries are switched off (``max_retries=0``) so this class is the
+single place that decides what is retried, how long to wait and how long the caller may
+be kept waiting.
 """
 
 import asyncio
@@ -12,7 +13,6 @@ import random
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 
 from openai import (
@@ -20,14 +20,12 @@ from openai import (
     APIError,
     APIStatusError,
     APITimeoutError,
-    AsyncOpenAI,
     RateLimitError,
 )
+from openai import AsyncOpenAI
 
-from app.core.config import settings
 from app.service.llm_client.llm_client import (
     LLMError,
-    LLMNotConfiguredError,
     LLMRateLimitError,
     LLMResponse,
     LLMTimeoutError,
@@ -53,12 +51,11 @@ class _CallState:
     first_piece_ms: int | None = None
 
 
-class OpenRouterClient:
-    provider = "openrouter"
-
+class OpenAICompatibleClient:
     def __init__(
         self,
         *,
+        provider: str,
         client: AsyncOpenAI,
         model: str,
         timeout: float,
@@ -68,6 +65,7 @@ class OpenRouterClient:
         stream_timeout: float = 120,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        self.provider = provider  # label used in logs and in the answer's metadata
         self._client = client
         self._model = model
         self._timeout = timeout
@@ -106,6 +104,7 @@ class OpenRouterClient:
             output_tokens=state.output_tokens,
             latency_ms=_elapsed_ms(started),
             attempts=state.attempts,
+            provider=self.provider,
         )
 
     async def stream(self, messages: list[Message]) -> AsyncGenerator[StreamEvent, None]:
@@ -165,6 +164,7 @@ class OpenRouterClient:
                 latency_ms=_elapsed_ms(started),
                 first_piece_ms=state.first_piece_ms or 0,
                 attempts=state.attempts,
+                provider=self.provider,
             )
         except (asyncio.CancelledError, GeneratorExit):
             # The listener went away (closed tab, shutdown). Not an error.
@@ -250,7 +250,10 @@ def _classify(exc: APIError) -> tuple[LLMError, bool, float | None]:
             return LLMUnavailableError(f"Provider error {code}"), True, None
         if code in (401, 402, 403):  # bad key or no credit: retrying cannot help
             return LLMUnavailableError(f"Provider refused our credentials or credit ({code})"), False, None
-        return LLMError(f"Provider rejected the request ({code})"), False, None
+        # Other 4xx: never retried here, but another provider may still succeed. Providers
+        # use these codes for their own problems too: Gemini answers 400 to an invalid API key,
+        # Groq answers 400 to a retired model, and a retired model is a 404 elsewhere.
+        return LLMError(f"Provider could not serve the request ({code})"), False, None
     # A plain APIError is how the SDK reports an error event inside an open stream.
     return LLMUnavailableError("Provider reported an error while streaming"), True, None
 
@@ -285,25 +288,3 @@ def _delta_text(chunk: Any) -> str:
 
 def _elapsed_ms(started: float) -> int:
     return int((time.monotonic() - started) * 1000)
-
-
-@lru_cache(maxsize=1)
-def get_llm_client() -> OpenRouterClient:
-    """One shared client, so HTTP connections are reused between requests."""
-    api_key = settings.OPENROUTER_API_KEY.get_secret_value()
-    if not api_key:
-        raise LLMNotConfiguredError("OPENROUTER_API_KEY is not set")
-    return OpenRouterClient(
-        client=AsyncOpenAI(
-            base_url=settings.OPENROUTER_BASE_URL,
-            api_key=api_key,
-            timeout=settings.CHAT_TIMEOUT_SECONDS,
-            max_retries=0,
-        ),
-        model=settings.CHAT_MODEL,
-        timeout=settings.CHAT_TIMEOUT_SECONDS,
-        total_timeout=settings.CHAT_TOTAL_TIMEOUT_SECONDS,
-        max_retries=settings.CHAT_MAX_RETRIES,
-        max_output_tokens=settings.CHAT_MAX_OUTPUT_TOKENS,
-        stream_timeout=settings.CHAT_STREAM_TIMEOUT_SECONDS,
-    )
