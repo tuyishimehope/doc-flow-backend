@@ -344,7 +344,12 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/processing-requests/{id}/cancel` | Yes | Cancel a request that has not started (409 otherwise) |
 | POST | `/api/v1/processing-requests/{id}/retry` | Yes | Queue a new request with the same settings as a failed or cancelled one (409 otherwise) |
 | POST | `/api/v1/chat` | Yes | Ask the assistant one question: body `{"message": "..."}` (1-4,000 characters after trimming). 422 for invalid input, 429 when rate limited, 503/504 when the AI provider is unavailable or slow |
-| POST | `/api/v1/chat/stream` | Yes | Same request as `/api/v1/chat`, answered as Server-Sent Events: `token` events (`{"text": "..."}`), then `done` (model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
+| POST | `/api/v1/chat/stream` | Yes | Same message rules as `/api/v1/chat`, answered as Server-Sent Events and remembered: body `{"message": "...", "conversation_id": 12}` (`conversation_id` optional; omit it to start a new conversation). Events: `conversation` (`{"conversation_id"}`), `token` (`{"text"}`), then `done` (model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes, 404 for a conversation that is not yours. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
+| POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
+| GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
+| GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
+| PATCH | `/api/v1/chat/conversations/{id}` | Yes | Rename: body `{"title": "..."}` |
+| DELETE | `/api/v1/chat/conversations/{id}` | Yes | Delete the conversation and its messages (204) |
 
 Collection endpoints use `skip` and `limit`, return newest first, and cap `limit` at 50.
 
