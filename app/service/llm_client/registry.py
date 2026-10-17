@@ -46,7 +46,7 @@ def configured_providers() -> dict[str, Provider]:
         Provider("groq", "Groq", settings.GROQ_BASE_URL,
                  settings.GROQ_AI_API_KEY.get_secret_value(), settings.CHAT_GROQ_MODEL),
         Provider("openai", "OpenAI", settings.OPENAI_BASE_URL,
-                 settings.OPENAI_API_KEY.get_secret_value(), settings.CHAT_OPENAI_MODEL),
+                 settings.OPENAI_API_KEY, settings.CHAT_OPENAI_MODEL),
     ]
     return {p.id: p for p in candidates if p.api_key}
 

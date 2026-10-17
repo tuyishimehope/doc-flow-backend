@@ -19,7 +19,8 @@ def set_keys(monkeypatch, *providers: str) -> None:
     names = {"openrouter": "OPENROUTER_API_KEY", "gemini": "GEMINI_AI_API_KEY",
              "groq": "GROQ_AI_API_KEY", "openai": "OPENAI_API_KEY"}
     for provider, setting in names.items():
-        monkeypatch.setattr(settings, setting, SecretStr("secret-key" if provider in providers else ""))
+        value = "secret-key" if provider in providers else ""
+        monkeypatch.setattr(settings, setting, value if provider == "openai" else SecretStr(value))
     get_llm_client.cache_clear()
 
 

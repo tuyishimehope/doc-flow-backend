@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     GROQ_AI_API_KEY: SecretStr = SecretStr("")
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     CHAT_GROQ_MODEL: str = "openai/gpt-oss-20b"
-    OPENAI_API_KEY: SecretStr = SecretStr("")  # the last resort
+    # OPENAI_API_KEY is declared at the top (the document service uses it too). Chat
+    # uses it as the last resort, with its own, cheaper model.
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     CHAT_OPENAI_MODEL: str = "gpt-3.5-turbo"
     CHAT_TIMEOUT_SECONDS: float = Field(default=30, gt=0)  # per attempt

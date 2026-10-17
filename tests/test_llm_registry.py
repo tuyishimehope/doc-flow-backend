@@ -32,7 +32,9 @@ def keys(monkeypatch):
 
     def configure(*providers: str) -> None:
         for name, setting in KEYS.items():
-            monkeypatch.setattr(settings, setting, SecretStr(f"secret-{name}" if name in providers else ""))
+            value = f"secret-{name}" if name in providers else ""
+            # OPENAI_API_KEY is shared with the document service, where it is a plain str.
+            monkeypatch.setattr(settings, setting, value if name == "openai" else SecretStr(value))
         get_llm_client.cache_clear()
 
     yield configure
@@ -115,3 +117,12 @@ def test_models_list_offers_auto_plus_each_configured_provider(keys):
 def test_models_list_is_empty_when_nothing_is_configured(keys):
     keys()
     assert list_models() == []
+
+
+def test_the_document_service_still_gets_the_real_openai_key(monkeypatch):
+    """OPENAI_API_KEY is shared. Wrapping it in SecretStr would make the SDK send "**********"."""
+    from app.service.openai.service import OpenaiService
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-real-looking-key")
+    assert isinstance(settings.OPENAI_API_KEY, str)
+    assert OpenaiService().client.api_key == "sk-real-looking-key"
