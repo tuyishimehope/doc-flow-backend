@@ -15,20 +15,20 @@
 - [x] Tests: validation + LLM mocked
 
 ### Phase 2 · Streaming
-- [ ] Send the answer word by word (Server-Sent Events)
-- [ ] Handle the user closing the page mid-answer
+- [x] Send the answer word by word (Server-Sent Events)
+- [x] Handle the user closing the page mid-answer
 
 ### Phase 3 · Memory (conversations)
-- [ ] Schema: `conversations` + `messages`
-- [ ] Send the last N messages to the LLM, so it remembers
-- [ ] Create, list, get, rename, delete a conversation
-- [ ] Auto-title from the first message
-- [ ] Save the AI's message after the stream finishes
+- [x] Schema: `conversations` + `messages`
+- [x] Send the last N messages to the LLM, so it remembers
+- [x] Create, list, get, rename, delete a conversation
+- [x] Auto-title from the first message
+- [x] Save the AI's message after the stream finishes
 
 ### Phase 4 · More models + fallback
-- [ ] Second provider behind the same `LLMClient`
-- [ ] If model A fails → try model B
-- [ ] Choose the model per request
+- [x] Second provider behind the same `LLMClient`
+- [x] If model A fails → try model B
+- [x] Choose the model per request
 
 ### Phase 5 · Observability
 - [ ] Store every call in an `llm_calls` table
