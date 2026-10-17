@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     CHAT_TIMEOUT_SECONDS: float = Field(default=30, gt=0)  # per attempt
     CHAT_TOTAL_TIMEOUT_SECONDS: float = Field(default=45, gt=0)  # all attempts together
     CHAT_MAX_RETRIES: int = Field(default=2, ge=0, le=5)
+    # A streamed answer may be long, so it gets its own, larger limit. Silence between
+    # two pieces is already capped by CHAT_TIMEOUT_SECONDS.
+    CHAT_STREAM_TIMEOUT_SECONDS: float = Field(default=120, gt=0)
     CHAT_MAX_OUTPUT_TOKENS: int = Field(default=1024, gt=0)
     CHAT_RATE_LIMIT_PER_MINUTE: int = Field(default=20, gt=0)
 
