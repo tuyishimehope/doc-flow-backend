@@ -29,6 +29,8 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 # Starlette and FastAPI capture 500-599 HTTP errors by default; keep only 500.
 REPORTED_STATUS_CODES = {500}
 
@@ -39,8 +41,11 @@ def init_sentry(*, transport: Any = None) -> bool:
     Call it before the FastAPI app is created, so the app is instrumented.
     ``transport`` exists for tests, which capture events instead of sending them.
     """
+    if transport is None and sentry_sdk.get_client().is_active():
+        return True  # already started: the API imports Celery, and both call this
     dsn = settings.SENTRY_DSN.strip()
     if not dsn:
+        logger.info("Sentry is off: SENTRY_DSN is empty")
         return False
     sentry_sdk.init(
         dsn=dsn,
@@ -48,6 +53,7 @@ def init_sentry(*, transport: Any = None) -> bool:
         release=settings.SENTRY_RELEASE or None,
         traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
         enable_logs=settings.SENTRY_ENABLE_LOGS,
+        debug=settings.SENTRY_DEBUG,  # prints why events are dropped or fail to send
         send_default_pii=False,
         max_request_body_size="never",
         include_local_variables=False,
@@ -57,19 +63,29 @@ def init_sentry(*, transport: Any = None) -> bool:
             StarletteIntegration(failed_request_status_codes=REPORTED_STATUS_CODES),
             FastApiIntegration(failed_request_status_codes=REPORTED_STATUS_CODES),
             CeleryIntegration(),
-            # level: breadcrumbs from INFO up; event_level: ERROR logs are events;
-            # sentry_logs_level DEBUG = no extra filter, LOG_LEVEL already decides.
+            # level: breadcrumbs from INFO up; event_level: ERROR logs are events.
+            # sentry_logs_level: the lowest level sent to Sentry Logs. INFO by default,
+            # because the Celery worker runs with --loglevel=DEBUG and celery/kombu are chatty.
             # Whether logs are sent at all is decided by enable_logs above (works on older SDKs too).
             LoggingIntegration(
                 level=logging.INFO,
                 event_level=logging.ERROR,
-                sentry_logs_level=logging.DEBUG,
+                sentry_logs_level=_level(settings.SENTRY_LOGS_LEVEL),
             ),
             OpenAIIntegration(include_prompts=False),
         ],
     )
     ignore_logger_for_sentry_logs("uvicorn.access")
+    logger.info(
+        "Sentry is on",
+        extra={"environment": settings.SENTRY_ENVIRONMENT},
+    )
     return True
+
+
+def _level(name: str) -> int:
+    level = logging.getLevelName(name.strip().upper())
+    return level if isinstance(level, int) else logging.INFO
 
 
 def _scrub(event: Any, hint: Any) -> Any:

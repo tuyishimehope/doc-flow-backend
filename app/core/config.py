@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     SENTRY_RELEASE: str = ""
     SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.1, ge=0, le=1)
     SENTRY_ENABLE_LOGS: bool = True
+    SENTRY_LOGS_LEVEL: str = "INFO"
+    SENTRY_DEBUG: bool = False
     # How much of a conversation is sent back to the model: at most this many of the
     # latest messages, and at most this many characters (oldest messages are dropped first).
     CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
