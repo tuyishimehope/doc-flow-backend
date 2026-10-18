@@ -226,3 +226,20 @@ def test_logs_can_be_switched_off_without_switching_errors_off(monkeypatch, sent
     sentry_sdk.flush()
     assert transport.logs == []
     assert any(e.get("logentry", {}).get("message") == "still an event" for e in transport.events)
+
+
+def test_debug_logs_stay_local_unless_the_level_is_lowered(monkeypatch, sentry):
+    log = logging.getLogger("app.test.levels")
+    log.setLevel(logging.DEBUG)
+    log.debug("chatty detail")
+    log.info("normal detail")
+    bodies = [x["body"] for x in sent_logs(sentry)]
+    assert "normal detail" in bodies
+    assert "chatty detail" not in bodies
+
+
+def test_an_unknown_logs_level_falls_back_to_info():
+    from app.core.observability import _level
+
+    assert _level("warning") == logging.WARNING
+    assert _level("nonsense") == logging.INFO
