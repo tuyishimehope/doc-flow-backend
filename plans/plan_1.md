@@ -31,6 +31,6 @@
 - [x] Choose the model per request
 
 ### Phase 5 · Observability
-- [ ] Store every call in an `llm_calls` table
-- [ ] Track: p50/p95 latency, tokens per day, error rate
-- [ ] Rerun evals after every prompt or model change
+- [x] Store every call in an `llm_calls` table
+- [x] Track: p50/p95 latency, tokens per day, error rate
+- [x] Rerun evals after every prompt or model change
