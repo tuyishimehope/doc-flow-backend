@@ -236,7 +236,7 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 
 What it reports: unhandled exceptions and HTTP 500 errors from the API and the Celery worker, plus an error when every chat provider has failed. Provider outages that were answered with 502, 503 or 504, and automatic failovers between providers, are expected and are not reported. Errors carry the numeric user id and the chat model choice and provider as tags.
 
-Logs: everything the app writes through the configured logger (`LOG_LEVEL`, default INFO) is also sent to Sentry Logs, with the same extra fields as the JSON line (`request_id`, `user_id`, `provider`, `status`, `latency_ms`, ...). ERROR logs also become error events. `uvicorn.access` is excluded because it prints full URLs with query strings. Set `SENTRY_ENABLE_LOGS=false` to stop sending logs.
+Logs: everything the app writes through the configured logger (`LOG_LEVEL`, default INFO) is also sent to Sentry Logs, with the same extra fields as the JSON line (`request_id`, `user_id`, `provider`, `status`, `latency_ms`, ...). ERROR logs also become error events. `uvicorn.access` is excluded because it prints full URLs with query strings. Set `SENTRY_ENABLE_LOGS=false` to stop sending logs, or `SENTRY_LOGS_LEVEL=WARNING` to send fewer (default `INFO`; the worker runs at DEBUG, which would be very noisy). If nothing shows up in Sentry, set `SENTRY_DEBUG=true`: the SDK then prints why events are dropped or cannot be sent, and the startup log says `Sentry is on` or `Sentry is off: SENTRY_DSN is empty`.
 
 What it never receives: request bodies (chat messages), local variables, prompts and answers, cookies, the `Authorization` header, e-mail addresses and IP addresses. `SENTRY_TRACES_SAMPLE_RATE` is the share of requests that also send performance traces.
 
