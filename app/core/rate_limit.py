@@ -23,7 +23,9 @@ async def check_rate_limit(key: str, limit: int, window_seconds: int) -> None:
     redis_key = f"rate_limit:{key}"
     try:
         async with redis_client.pipeline(transaction=True) as pipe:
-            count, _ = await pipe.incr(redis_key).expire(redis_key, window_seconds, nx=True).execute()
+            pipe.incr(redis_key)
+            pipe.expire(redis_key, window_seconds, nx=True)
+            count, _ = await pipe.execute()
     except RedisError:
         logger.warning("Rate limit skipped because Redis is unavailable", exc_info=True)
         return
