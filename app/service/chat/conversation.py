@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.service.chat.crud import add_message
-from app.service.chat.schema import MessageRole, MessageStatus
+from app.service.chat.schema import CallUsage, MessageRole, MessageStatus
 from app.service.llm_client.llm_client import StreamDelta, StreamDone, StreamEvent
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ async def _save(
     status: MessageStatus,
     model: str | None = None,
     meta: dict[str, Any] | None = None,
+    usage: CallUsage | None = None,
 ) -> None:
     # A new session: the request's own session may already be closed by now.
     async with session_factory() as session:
@@ -38,6 +39,7 @@ async def _save(
             status=status,
             model=model,
             meta=meta,
+            usage=usage,
             db_session=session,
         )
 
@@ -82,13 +84,15 @@ async def save_while_streaming(
                     "".join(parts),
                     MessageStatus.COMPLETE,
                     model=event.model,
-                    meta={
-                        "provider": event.provider,
-                        "input_tokens": event.input_tokens,
-                        "output_tokens": event.output_tokens,
-                        "latency_ms": event.latency_ms,
-                        "first_piece_ms": event.first_piece_ms,
-                    },
+                    meta={"first_piece_ms": event.first_piece_ms, "attempts": event.attempts},
+                    usage=CallUsage(
+                        provider=event.provider,
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                        cached_tokens=event.cached_tokens,
+                        reasoning_tokens=event.reasoning_tokens,
+                        latency_ms=event.latency_ms,
+                    ),
                 )
                 saved = True
             yield event

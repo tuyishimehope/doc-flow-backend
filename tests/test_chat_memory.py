@@ -9,7 +9,7 @@ import pytest
 from app.service.chat import conversation as conversation_module
 from app.service.chat.chat import auto_title, build_messages, trim_history
 from app.service.chat.conversation import save_while_streaming
-from app.service.chat.schema import MessageRole, MessageStatus
+from app.service.chat.schema import CallUsage, MessageRole, MessageStatus
 from app.service.llm_client.llm_client import StreamDelta, StreamDone
 
 
@@ -71,8 +71,10 @@ class Recorder:
     def __init__(self) -> None:
         self.saved: list[dict] = []
 
-    async def __call__(self, session_factory, conversation_id, text, status, model=None, meta=None):
-        self.saved.append({"conversation_id": conversation_id, "text": text, "status": status, "model": model, "meta": meta})
+    async def __call__(self, session_factory, conversation_id, text, status, model=None, meta=None, usage=None):
+        self.saved.append(
+            {"conversation_id": conversation_id, "text": text, "status": status, "model": model, "meta": meta, "usage": usage}
+        )
 
 
 @pytest.fixture
@@ -124,7 +126,8 @@ async def test_saves_the_full_answer_before_the_done_event_goes_out(recorder):
     assert seen == ["StreamDelta", "StreamDelta", "StreamDone"]
     saved = recorder.saved[0]
     assert (saved["conversation_id"], saved["text"], saved["status"], saved["model"]) == (7, "Paris.", MessageStatus.COMPLETE, "m")
-    assert saved["meta"] == {"provider": "", "input_tokens": 5, "output_tokens": 2, "latency_ms": 30, "first_piece_ms": 10}
+    assert saved["meta"] == {"first_piece_ms": 10, "attempts": 1}
+    assert saved["usage"] == CallUsage(provider="", input_tokens=5, output_tokens=2, latency_ms=30)
 
 
 @pytest.mark.anyio
