@@ -22,6 +22,7 @@ from app.db.dependencies import get_db_session
 from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
+from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
 from app.service.chat.chat import answer_message, auto_title, stream_answer, trim_history
 from app.service.chat.conversation import SessionFactory, save_while_streaming
 from app.service.chat.crud import (
@@ -122,6 +123,26 @@ async def _rate_limit(current_user: CurrentUser) -> None:
     )
 
 
+async def _token_budget(current_user: CurrentUser, db_session: AsyncSession) -> None:
+    """429 when the user has used up today's tokens. Runs before any model call."""
+    try:
+        await check_daily_budget(current_user.id, db_session)
+    except DailyBudgetExceeded as exc:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"You have used your daily limit of {exc.limit:,} tokens. "
+                f"It resets at {exc.resets_at:%H:%M} UTC (in {_hours_minutes(exc.retry_after)})."
+            ),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from None
+
+
+def _hours_minutes(seconds: int) -> str:
+    hours, minutes = divmod(max(seconds, 0) // 60, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
 @CHAT_ROUTER.get("/stats", response_model=ChatStatsResponse)
 async def stats_endpoint(
     current_user: CurrentUser,
@@ -146,9 +167,11 @@ async def models_endpoint(current_user: CurrentUser) -> ModelsResponse:
 async def chat_endpoint(
     body: ChatRequest,
     current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
     pick_llm: Annotated[LLMPicker, Depends(get_llm_picker)],
 ) -> ChatResponse:
     await _rate_limit(current_user)
+    await _token_budget(current_user, db_session)
     _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)
     try:
@@ -180,6 +203,7 @@ async def chat_stream_endpoint(
     session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> StreamingResponse:
     await _rate_limit(current_user)
+    await _token_budget(current_user, db_session)
     _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)  # before any database work, so a bad choice creates nothing
     conversation = await _conversation_for(body, current_user.id, db_session)

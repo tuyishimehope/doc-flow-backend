@@ -190,3 +190,19 @@ async def get_latencies(user_id: int, since: datetime, db_session: AsyncSession)
         .order_by(Message.latency_ms)
     )
     return [latency for latency in result.scalars().all() if latency is not None]
+
+
+async def get_tokens_used_since(user_id: int, since: datetime, db_session: AsyncSession) -> int:
+    """Input + output tokens of this user's answers from ``since`` on.
+
+    Reasoning tokens are already inside the output count and cached tokens inside the input
+    count, so neither is added again. Answers without usage numbers (cut off, failed, old
+    rows) count as 0.
+    """
+    result = await db_session.execute(
+        select(
+            func.coalesce(func.sum(Message.input_tokens), 0)
+            + func.coalesce(func.sum(Message.output_tokens), 0)
+        ).where(*_assistant_messages_since(user_id, since))
+    )
+    return int(result.scalar_one())

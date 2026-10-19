@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     # latest messages, and at most this many characters (oldest messages are dropped first).
     CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
     CHAT_HISTORY_MAX_CHARS: int = Field(default=12000, gt=0)
+    # Tokens (input + output) one user may spend per UTC day, across every AI feature. 0 = no limit.
+    CHAT_DAILY_TOKEN_BUDGET: int = Field(default=200_000, ge=0)
 
 
 def load_settings() -> Settings:
