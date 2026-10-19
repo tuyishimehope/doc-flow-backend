@@ -82,8 +82,9 @@ async def add_message(
     meta: dict[str, Any] | None = None,
     usage: CallUsage | None = None,
 ) -> Message:
-    usage = usage or CallUsage()
+    usage: CallUsage | None = None,
     message = Message(
+    usage = usage or CallUsage()
         conversation_id=conversation_id,
         role=role.value,
         content=content,
@@ -96,6 +97,12 @@ async def add_message(
         reasoning_tokens=usage.reasoning_tokens,
         latency_ms=usage.latency_ms,
         meta=meta,
+        provider=usage.provider or None,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cached_tokens=usage.cached_tokens,
+        reasoning_tokens=usage.reasoning_tokens,
+        latency_ms=usage.latency_ms,
     )
     db_session.add(message)
     await db_session.execute(
