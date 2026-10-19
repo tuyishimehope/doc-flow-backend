@@ -2,6 +2,9 @@
 
 Legend: `[x]` done and tested, `[ ]` not done yet.
 
+<details open> 
+<summary>Phase 0. Setup</summary>
+
 ### Phase 0 · Setup (half a day)
 - [x] Pick the use case + write a system prompt
   - [x] Prompt lives in `app/prompts/chat_v1.md` (versioned by file name)
@@ -11,6 +14,8 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
 - [x] FastAPI project, API keys in `.env`, `GET /health`
   - [x] Settings in `app/core/config.py`, keys never logged, `.env.example` kept up to date
   - [x] `/health` checks the database, MinIO and Redis
+  - [ ] 
+</details>
 
 ### Phase 1 · One question, one answer
 - [x] `POST /api/v1/chat` receives `{ "message": "..." }`
@@ -84,18 +89,23 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
 - [x] `SENTRY_DEBUG` switch and a startup line "Sentry is on / off"
 - [x] Tests with a fake transport, README section
 
-#### 5b · Your own numbers (open)
-- [ ] Store token usage on every assistant message
-  - [ ] Nullable columns `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens`, plus `provider`, `model`, `latency_ms`
-  - [ ] Nullable because not every provider reports every kind
-  - [ ] Alembic migration and a test that a provider without usage still saves
-- [ ] Track: p50/p95 latency, tokens per day, error rate
-  - [ ] One query (or SQL view) per number
-  - [ ] Admin-only `GET /api/v1/chat/stats` that returns them
-- [ ] Rerun evals after every prompt or model change
-  - [ ] `scripts/run_evals.py` reads `evals/chat.json`, calls the real endpoint, prints pass/fail per case
-  - [ ] Saves a score per run, so two runs can be compared
-  - [ ] Optional: an LLM-as-judge check for answers that keyword checks judge unfairly
+#### 5b · Your own numbers (done)
+- [x] Store token usage on every assistant message
+  - [x] Nullable columns `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens`, `provider`, `latency_ms` (`model` was already there)
+  - [x] Nullable because not every provider reports every kind; a provider that sends no usage still saves
+  - [x] Read safely from `usage.prompt_tokens_details` and `usage.completion_tokens_details`, in both `complete()` and `stream()`
+  - [x] Alembic migration `c4e8a1d6f293`, copies the old numbers out of the `metadata` JSON (run on PostgreSQL 16 with messy rows)
+  - [x] Tests: usage reading, saving with and without usage, cut-off answers
+  - [x] The plain `/chat` endpoint saves no messages, so only streamed conversations are counted
+- [x] Track: p50/p95 latency, tokens per day, error rate
+  - [x] Three small queries: usage per day, answers by status, latencies (percentiles are worked out from the sorted latencies, so it also runs on SQLite in tests)
+  - [x] `GET /api/v1/chat/stats?days=7` (1-90): the user's own numbers. An all-users view needs an admin role, which the app does not have yet
+  - [x] Tests: per-day sums, p50/p95, error rate, other users' and old answers left out, bad `days`
+- [x] Rerun evals after every prompt or model change
+  - [x] `python -m scripts.run_evals` reads `evals/chat.json`, calls the real `POST /api/v1/chat`, prints pass/fail per case
+  - [x] Saves a scored run in `evals/results/`; `--compare OLD NEW` shows which cases got worse or better; `--min-score` makes it usable in CI
+  - [ ] Optional: an LLM-as-judge check for answers that keyword checks judge unfairly (not built)
+  - [ ] Run it once against the live API and keep the first result as the baseline
 
 ### Phase 6 · Cost and abuse control
 - [ ] Daily token budget per user
