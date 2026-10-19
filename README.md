@@ -224,6 +224,19 @@ Keep `.env` and real credentials out of version control. `MINIO_ENDPOINT` must b
 
 `OPENAI_MODEL` selects the model, `OPENAI_TIMEOUT_SECONDS` bounds each API request, `OPENAI_MAX_INPUT_CHARS` limits extracted document text sent for processing, and `OPENAI_MAX_OUTPUT_TOKENS` caps generated output. The character and token limits help control request size but do not impose a fixed billing ceiling.
 
+### Usage numbers and evals
+
+Every streamed answer is stored with what it cost: `provider`, `input_tokens`, `output_tokens`, `cached_tokens`, `reasoning_tokens` and `latency_ms` are columns of `message`, and each one is empty when the provider did not report it (an empty value means "unknown", not zero). `GET /api/v1/chat/stats` sums them per day for the logged-in user.
+
+After every change of the prompt (`app/prompts/chat_*.md`) or of the model settings, run the evals against a running API and compare with the run before:
+
+```bash
+python -m scripts.run_evals --email you@example.com --password '...'   # or --token / EVALS_TOKEN
+python -m scripts.run_evals --compare evals/results/<old>.json evals/results/<new>.json
+```
+
+Each run is saved in `evals/results/` (not committed) with its score, so two runs can be compared. `--model groq` tests one provider, `--min-score 0.9` makes the command fail below 90%. It makes about ten real model calls per run. The case format is in `evals/README.md`.
+
 ### Monitoring with Sentry
 
 Error and performance monitoring is optional and stays off while `SENTRY_DSN` is empty. To turn it on, create a Python project in Sentry, copy its DSN into `.env`, and restart the API and the worker:
@@ -362,6 +375,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/chat` | Yes | Ask the assistant one question: body `{"message": "...", "model": "auto"}` (message 1-4,000 characters after trimming; `model` optional, see `GET /api/v1/chat/models`). 422 for invalid input, 429 when rate limited, 503/504 when the AI provider is unavailable or slow |
 | GET | `/api/v1/chat/models` | Yes | The values the `model` field accepts: `auto` (default, tries every configured provider in turn) plus each provider that has an API key. A chosen provider is tried first and the others still back it up; 400 if it is not configured, 422 for any name not on the list |
 | POST | `/api/v1/chat/stream` | Yes | Same message rules as `/api/v1/chat`, answered as Server-Sent Events and remembered: body `{"message": "...", "conversation_id": 12, "model": "groq"}` (`conversation_id` and `model` optional; omit it to start a new conversation). Events: `conversation` (`{"conversation_id"}`), `token` (`{"text"}`), then `done` (provider, model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes, 404 for a conversation that is not yours. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
+| GET | `/api/v1/chat/stats` | Yes | Your own usage over the last `days` days (1-90, default 7): answers, input/output/cached/reasoning tokens in total and per day (days without answers are zeros), p50/p95 latency of finished answers, and the error rate (errors / answers; answers you cut off are counted separately). Only streamed conversations are stored, so only they appear here |
 | POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
 | GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
 | GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
@@ -401,6 +415,8 @@ app/
 ├── tasks/                  # Celery configuration and tasks
 └── utils/                  # Text extraction and email helpers
 migrations/                 # Alembic migrations
+evals/                      # Chat test questions (chat.json) and saved eval runs
+scripts/                    # Tools you run by hand, e.g. run_evals.py (not part of the server)
 templates/email/            # Password-reset email template
 tests/                      # API tests and sample assets
 ```

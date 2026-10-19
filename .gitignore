@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Saved eval runs (scripts/run_evals.py)
+evals/results/*.json

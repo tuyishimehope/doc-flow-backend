@@ -4,6 +4,8 @@ from enum import Enum
 DEFAULT_TITLE = "New conversation"
 MAX_TITLE_CHARS = 100
 AUTO_TITLE_CHARS = 50
+DEFAULT_STATS_DAYS = 7
+MAX_STATS_DAYS = 90
 
 
 class MessageRole(str, Enum):

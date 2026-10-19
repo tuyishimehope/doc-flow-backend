@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -89,3 +89,35 @@ class ModelOption(BaseModel):
 class ModelsResponse(BaseModel):
     default: str
     models: list[ModelOption]
+
+
+class DailyUsage(BaseModel):
+    day: date
+    answers: int
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    reasoning_tokens: int
+
+
+class LatencyStats(BaseModel):
+    samples: int  # how many finished answers the percentiles are based on
+    p50_ms: int | None
+    p95_ms: int | None
+
+
+class ChatStatsResponse(BaseModel):
+    """The current user's own usage over the last ``days`` days (today included)."""
+
+    days: int
+    answers: int
+    complete: int
+    errors: int
+    cancelled: int
+    error_rate: float  # errors / answers; cancelled answers are the user's choice, not errors
+    latency: LatencyStats
+    input_tokens: int
+    output_tokens: int
+    cached_tokens: int
+    reasoning_tokens: int
+    per_day: list[DailyUsage]
