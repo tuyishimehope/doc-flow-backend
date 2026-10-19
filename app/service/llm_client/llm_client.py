@@ -24,6 +24,8 @@ class LLMResponse:
     latency_ms: int
     attempts: int
     provider: str = ""  # which provider answered (matters once there is a fallback)
+    cached_tokens: int | None = None  # part of input_tokens the provider served from its cache
+    reasoning_tokens: int | None = None  # hidden "thinking" tokens, counted inside output_tokens
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,8 @@ class StreamDone:
     first_piece_ms: int  # the wait before anything appeared: what users feel most
     attempts: int
     provider: str = ""
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
 
 
 StreamEvent = StreamDelta | StreamDone
