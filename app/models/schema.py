@@ -235,7 +235,16 @@ class Message(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="complete", server_default="complete")
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    # Room for token counts now and for document citations later.
+    # What the call cost, so usage can be summed and timed in SQL. All of them are NULL for
+    # user messages and for answers cut off before the provider sent its usage; a provider
+    # may also leave out cached or reasoning tokens.
+    provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Everything else: time to first piece, attempts, and later document citations.
     meta: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)

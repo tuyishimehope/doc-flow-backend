@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schema import Conversation, Message
-from app.service.chat.schema import MessageRole, MessageStatus
+from app.service.chat.schema import CallUsage, MessageRole, MessageStatus
 
 
 async def create_conversation(user_id: int, title: str, db_session: AsyncSession) -> Conversation:
@@ -80,13 +80,21 @@ async def add_message(
     model: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Message:
+    usage: CallUsage | None = None,
     message = Message(
+    usage = usage or CallUsage()
         conversation_id=conversation_id,
         role=role.value,
         content=content,
         status=status.value,
         model=model,
         meta=meta,
+        provider=usage.provider or None,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cached_tokens=usage.cached_tokens,
+        reasoning_tokens=usage.reasoning_tokens,
+        latency_ms=usage.latency_ms,
     )
     db_session.add(message)
     await db_session.execute(

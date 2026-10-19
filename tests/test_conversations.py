@@ -190,7 +190,11 @@ async def test_a_new_question_creates_a_titled_conversation_and_stores_both_mess
     ]
     assert detail["messages"][1]["model"] == "fake/model"
     stored = await get_messages(conversation_id, db_session)
-    assert stored[1].meta == {"provider": "", "input_tokens": 10, "output_tokens": 2, "latency_ms": 50, "first_piece_ms": 20}
+    assert stored[1].meta == {"first_piece_ms": 20, "attempts": 1}
+    assert (stored[1].input_tokens, stored[1].output_tokens, stored[1].latency_ms) == (10, 2, 50)
+    assert stored[1].provider is None  # the fake sends no provider label
+    assert (stored[1].cached_tokens, stored[1].reasoning_tokens) == (None, None)
+    assert stored[0].input_tokens is None  # the user's own message has no usage
 
 
 @pytest.mark.anyio

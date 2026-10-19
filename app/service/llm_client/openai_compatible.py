@@ -49,6 +49,8 @@ class _CallState:
     status: str = "error"
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cached_tokens: int | None = None
+    reasoning_tokens: int | None = None
     first_piece_ms: int | None = None
 
 
@@ -88,8 +90,7 @@ class OpenAICompatibleClient:
             text = _extract_text(completion)
             usage = getattr(completion, "usage", None)
             state.model = getattr(completion, "model", None) or self._model
-            state.input_tokens = getattr(usage, "prompt_tokens", None)
-            state.output_tokens = getattr(usage, "completion_tokens", None)
+            _apply_usage(state, usage)
             state.status = "ok"
         except asyncio.TimeoutError:
             state.status = LLMTimeoutError.status
@@ -107,6 +108,8 @@ class OpenAICompatibleClient:
             latency_ms=_elapsed_ms(started),
             attempts=state.attempts,
             provider=self.provider,
+            cached_tokens=state.cached_tokens,
+            reasoning_tokens=state.reasoning_tokens,
         )
 
     async def stream(self, messages: list[Message]) -> AsyncGenerator[StreamEvent, None]:
@@ -139,8 +142,7 @@ class OpenAICompatibleClient:
                             state.model = getattr(chunk, "model", None) or state.model
                             usage = getattr(chunk, "usage", None)
                             if usage is not None:
-                                state.input_tokens = usage.prompt_tokens
-                                state.output_tokens = usage.completion_tokens
+                                _apply_usage(state, usage)
                             text = _delta_text(chunk)
                             if not sent_text:
                                 text = text.lstrip()  # models often start with blank lines
@@ -168,6 +170,8 @@ class OpenAICompatibleClient:
                 first_piece_ms=state.first_piece_ms or 0,
                 attempts=state.attempts,
                 provider=self.provider,
+                cached_tokens=state.cached_tokens,
+                reasoning_tokens=state.reasoning_tokens,
             )
         except (asyncio.CancelledError, GeneratorExit):
             # The listener went away (closed tab, shutdown). Not an error.
@@ -233,9 +237,33 @@ class OpenAICompatibleClient:
                 "first_piece_ms": state.first_piece_ms,
                 "input_tokens": state.input_tokens,
                 "output_tokens": state.output_tokens,
+                "cached_tokens": state.cached_tokens,
+                "reasoning_tokens": state.reasoning_tokens,
                 "attempts": state.attempts,
             },
         )
+
+
+def _count(value: Any) -> int | None:
+    """A token count, or None when the provider did not send a real number."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _apply_usage(state: _CallState, usage: Any) -> None:
+    """Copy the token counts of a ``usage`` object onto the call state.
+
+    Providers differ: some send no usage at all, some leave out the ``*_details`` parts, and
+    some send them as ``None``. Every level is therefore optional. Where the numbers live:
+
+    * ``prompt_tokens_details.cached_tokens``: input served from the provider's cache
+    * ``completion_tokens_details.reasoning_tokens``: hidden thinking, inside ``completion_tokens``
+    """
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    state.input_tokens = _count(getattr(usage, "prompt_tokens", None))
+    state.output_tokens = _count(getattr(usage, "completion_tokens", None))
+    state.cached_tokens = _count(getattr(prompt_details, "cached_tokens", None))
+    state.reasoning_tokens = _count(getattr(completion_details, "reasoning_tokens", None))
 
 
 def _classify(exc: APIError) -> tuple[LLMError, bool, float | None]:

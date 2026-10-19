@@ -29,6 +29,8 @@ class JsonLogFormatter(logging.Formatter):
         "fallback_to",
         "input_tokens",
         "output_tokens",
+        "cached_tokens",
+        "reasoning_tokens",
         "attempts",
     )
 
