@@ -4,11 +4,17 @@ import math
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.chat.schema import ChatRequest, ChatResponse, ModelsResponse, StreamChatRequest
+from app.api.v1.chat.schema import (
+    ChatRequest,
+    ChatResponse,
+    ChatStatsResponse,
+    ModelsResponse,
+    StreamChatRequest,
+)
 from app.core.config import settings
 from app.core.observability import set_tag, set_user_id
 from app.core.rate_limit import check_rate_limit
@@ -26,7 +32,8 @@ from app.service.chat.crud import (
     get_recent_messages,
     rename_conversation,
 )
-from app.service.chat.schema import DEFAULT_TITLE, MessageRole
+from app.service.chat.schema import DEFAULT_STATS_DAYS, DEFAULT_TITLE, MAX_STATS_DAYS, MessageRole
+from app.service.chat.stats import get_chat_stats
 from app.service.llm_client.llm_client import (
     LLMClient,
     LLMError,
@@ -113,6 +120,20 @@ async def _rate_limit(current_user: CurrentUser) -> None:
         limit=settings.CHAT_RATE_LIMIT_PER_MINUTE,
         window_seconds=60,
     )
+
+
+@CHAT_ROUTER.get("/stats", response_model=ChatStatsResponse)
+async def stats_endpoint(
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+    days: Annotated[int, Query(ge=1, le=MAX_STATS_DAYS)] = DEFAULT_STATS_DAYS,
+) -> ChatStatsResponse:
+    """The current user's own usage: tokens per day, p50/p95 latency and error rate.
+
+    Only the user's own answers are counted. A view over everyone's usage needs an admin
+    role, which the app does not have yet.
+    """
+    return ChatStatsResponse(**await get_chat_stats(current_user.id, days, db_session))
 
 
 @CHAT_ROUTER.get("/models", response_model=ModelsResponse)

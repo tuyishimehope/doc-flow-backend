@@ -4,6 +4,7 @@ Every conversation query is scoped by ``user_id``: asking for someone else's
 conversation looks exactly like asking for one that does not exist.
 """
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -133,3 +134,59 @@ async def get_recent_messages(
         .limit(limit)
     )
     return list(reversed(result.scalars().all()))
+
+
+def _assistant_messages_since(user_id: int, since: datetime):
+    """The WHERE clause shared by the usage queries: this user's answers from ``since`` on."""
+    return (
+        Conversation.id == Message.conversation_id,
+        Conversation.user_id == user_id,
+        Message.role == MessageRole.ASSISTANT.value,
+        Message.created_at >= since,
+    )
+
+
+async def get_usage_per_day(user_id: int, since: datetime, db_session: AsyncSession) -> list[Any]:
+    """One row per day with an answer: its count and the summed token counts.
+
+    A day is a day of the database's time zone (UTC on a standard server).
+    """
+    day = func.date(Message.created_at).label("day")
+    result = await db_session.execute(
+        select(
+            day,
+            func.count(Message.id).label("answers"),
+            func.coalesce(func.sum(Message.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(Message.output_tokens), 0).label("output_tokens"),
+            func.coalesce(func.sum(Message.cached_tokens), 0).label("cached_tokens"),
+            func.coalesce(func.sum(Message.reasoning_tokens), 0).label("reasoning_tokens"),
+        )
+        .where(*_assistant_messages_since(user_id, since))
+        .group_by(day)
+        .order_by(day)
+    )
+    return list(result.all())
+
+
+async def count_answers_by_status(user_id: int, since: datetime, db_session: AsyncSession) -> dict[str, int]:
+    result = await db_session.execute(
+        select(Message.status, func.count(Message.id))
+        .where(*_assistant_messages_since(user_id, since))
+        .group_by(Message.status)
+    )
+    return {status: count for status, count in result.all()}
+
+
+async def get_latencies(user_id: int, since: datetime, db_session: AsyncSession) -> list[int]:
+    """Latency of every finished answer, smallest first. Only complete answers: a cut-off one
+    says nothing about how long the model needs."""
+    result = await db_session.execute(
+        select(Message.latency_ms)
+        .where(
+            *_assistant_messages_since(user_id, since),
+            Message.status == MessageStatus.COMPLETE.value,
+            Message.latency_ms.is_not(None),
+        )
+        .order_by(Message.latency_ms)
+    )
+    return [latency for latency in result.scalars().all() if latency is not None]
