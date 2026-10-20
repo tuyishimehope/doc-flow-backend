@@ -18,10 +18,12 @@ from app.api.v1.chat.schema import (
 from app.core.config import settings
 from app.core.observability import set_tag, set_user_id
 from app.core.rate_limit import check_rate_limit
+from app.core.stream_limit import acquire_stream_slot, release_stream_slot
 from app.db.dependencies import get_db_session
 from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
+from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
 from app.service.chat.chat import answer_message, auto_title, stream_answer, trim_history
 from app.service.chat.conversation import SessionFactory, save_while_streaming
 from app.service.chat.crud import (
@@ -122,6 +124,54 @@ async def _rate_limit(current_user: CurrentUser) -> None:
     )
 
 
+async def _token_budget(current_user: CurrentUser, db_session: AsyncSession) -> None:
+    """429 when the user has used up today's tokens. Runs before any model call."""
+    try:
+        await check_daily_budget(current_user.id, db_session)
+    except DailyBudgetExceeded as exc:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"You have used your daily limit of {exc.limit:,} tokens. "
+                f"It resets at {exc.resets_at:%H:%M} UTC (in {_hours_minutes(exc.retry_after)})."
+            ),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from None
+
+
+def _hours_minutes(seconds: int) -> str:
+    hours, minutes = divmod(max(seconds, 0) // 60, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
+# How long past the stream time limit a ticket is still trusted. After that the user is not
+# locked out by a stream whose server died without handing the ticket back.
+STREAM_SLOT_MARGIN_SECONDS = 30
+
+
+async def _take_stream_slot(current_user: CurrentUser) -> str | None:
+    """A ticket for one running stream, or 429 when the user already has the maximum.
+
+    ``None`` means no ticket is held (limits are switched off), so there is nothing to give back.
+    """
+    if not settings.rate_limit_enabled:
+        return None
+    limit = settings.CHAT_MAX_CONCURRENT_STREAMS
+    slot_id = await acquire_stream_slot(
+        current_user.id,
+        limit=limit,
+        ttl_seconds=math.ceil(settings.CHAT_STREAM_TIMEOUT_SECONDS) + STREAM_SLOT_MARGIN_SECONDS,
+    )
+    if slot_id is None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"You already have the maximum of {limit} answers streaming at once. "
+            "Wait for one to finish, then try again.",
+            headers={"Retry-After": "5"},
+        )
+    return slot_id
+
+
 @CHAT_ROUTER.get("/stats", response_model=ChatStatsResponse)
 async def stats_endpoint(
     current_user: CurrentUser,
@@ -146,9 +196,11 @@ async def models_endpoint(current_user: CurrentUser) -> ModelsResponse:
 async def chat_endpoint(
     body: ChatRequest,
     current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
     pick_llm: Annotated[LLMPicker, Depends(get_llm_picker)],
 ) -> ChatResponse:
     await _rate_limit(current_user)
+    await _token_budget(current_user, db_session)
     _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)
     try:
@@ -180,41 +232,48 @@ async def chat_stream_endpoint(
     session_factory: Annotated[SessionFactory, Depends(get_session_factory)],
 ) -> StreamingResponse:
     await _rate_limit(current_user)
+    await _token_budget(current_user, db_session)
     _tag_request(current_user.id, body.model)
     llm = pick_llm(body.model)  # before any database work, so a bad choice creates nothing
-    conversation = await _conversation_for(body, current_user.id, db_session)
-
-    # The earlier turns come first; the new message is saved right after, so it
-    # is never lost even if the model call fails or the server dies.
-    earlier = await get_recent_messages(conversation.id, settings.CHAT_HISTORY_MESSAGES, db_session)
-    history = trim_history(
-        [{"role": m.role, "content": m.content} for m in earlier],  # type: ignore[misc]
-        settings.CHAT_HISTORY_MAX_CHARS,
-    )
-    await add_message(
-        conversation_id=conversation.id,
-        role=MessageRole.USER,
-        content=body.message,
-        db_session=db_session,
-    )
-
-    events = stream_answer(body.message, llm, history)
-    # Wait for the first piece *before* answering. Until then a failure can still
-    # be a real HTTP status (503, 504...). After it, the 200 is already on the wire.
+    slot_id = await _take_stream_slot(current_user)  # after the cheap checks: a refusal creates nothing
     try:
-        first = await events.__anext__()
-    except LLMError as exc:
-        raise to_http_error(exc) from None
-    except StopAsyncIteration:
-        raise to_http_error(LLMError("Stream ended without any event")) from None
-    return StreamingResponse(
-        _event_stream(conversation.id, first, events, session_factory),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # stops nginx-style proxies from holding pieces back
-        },
-    )
+        conversation = await _conversation_for(body, current_user.id, db_session)
+
+        # The earlier turns come first; the new message is saved right after, so it
+        # is never lost even if the model call fails or the server dies.
+        earlier = await get_recent_messages(conversation.id, settings.CHAT_HISTORY_MESSAGES, db_session)
+        history = trim_history(
+            [{"role": m.role, "content": m.content} for m in earlier],  # type: ignore[misc]
+            settings.CHAT_HISTORY_MAX_CHARS,
+        )
+        await add_message(
+            conversation_id=conversation.id,
+            role=MessageRole.USER,
+            content=body.message,
+            db_session=db_session,
+        )
+
+        events = stream_answer(body.message, llm, history)
+        # Wait for the first piece *before* answering. Until then a failure can still
+        # be a real HTTP status (503, 504...). After it, the 200 is already on the wire.
+        try:
+            first = await events.__anext__()
+        except LLMError as exc:
+            raise to_http_error(exc) from None
+        except StopAsyncIteration:
+            raise to_http_error(LLMError("Stream ended without any event")) from None
+        return StreamingResponse(
+            _event_stream(conversation.id, first, events, session_factory, current_user.id, slot_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # stops nginx-style proxies from holding pieces back
+            },
+        )
+    except BaseException:
+        # The stream never started, so nothing else will give the ticket back.
+        await release_stream_slot(current_user.id, slot_id)
+        raise
 
 
 async def _conversation_for(
@@ -235,6 +294,8 @@ async def _event_stream(
     first: StreamEvent,
     rest: AsyncGenerator[StreamEvent, None],
     session_factory: SessionFactory,
+    user_id: int | None = None,
+    slot_id: str | None = None,
 ) -> AsyncIterator[str]:
     saving = save_while_streaming(
         first, rest, conversation_id=conversation_id, session_factory=session_factory
@@ -252,7 +313,11 @@ async def _event_stream(
     finally:
         # Also runs when the client disconnects: the provider connection is closed
         # and the part of the answer written so far is saved as "cancelled".
-        await saving.aclose()
+        try:
+            await saving.aclose()
+        finally:
+            if user_id is not None:
+                await release_stream_slot(user_id, slot_id)  # the ticket goes back on every exit
 
 
 def _format(event: StreamEvent) -> str:
