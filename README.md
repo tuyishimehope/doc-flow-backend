@@ -279,6 +279,22 @@ ENVIRONMENT=production
 
 What is kept: the transcript text, plus the model, the size of the audio in bytes and how long the provider took. What is not kept: the audio itself. Neither the transcript nor the file name is written to the logs, and Sentry never receives request bodies. The audio is sent to Groq, a hosted service, so do not send recordings you are not allowed to share with a third party.
 
+### Image questions
+
+Questions about an uploaded image go to Gemini through its OpenAI-compatible endpoint, with the same `GEMINI_AI_API_KEY` and `GEMINI_BASE_URL` as the chat fallback:
+
+```dotenv
+VISION_MODEL=gemini-3.1-flash-lite
+VISION_MAX_IMAGE_MB=5
+VISION_TIMEOUT_SECONDS=60
+```
+
+`VISION_MAX_IMAGE_MB` is at most 14: base64 makes the file a third bigger and Gemini accepts 20 MB per request. Also set a request size limit in the reverse proxy (for example `client_max_body_size` in nginx), because the server has read the whole upload before the API can refuse it.
+
+Every upload is checked before it is used, following the OWASP File Upload Cheat Sheet: the extension must be on an allowlist (jpg, jpeg, png, webp), the size is limited while reading, the first bytes must match the extension, the picture is refused above 40 million pixels, and the image is then decoded and written again, which removes EXIF data (GPS position, camera, time), text chunks and bytes hidden after the image. The browser's content type is ignored. What is kept: the question, the answer, the token counts, and for the image only its size, type, pixel size and SHA-256. The image itself is not stored, and neither the question, the answer nor the file name is logged. The checks live in `app/utils/upload.py` (any feature) and `app/utils/image.py` (images), so a document feature can reuse them with its own list of types. Not done yet: virus scanning, and removing active content from PDF or Office files.
+
+On Gemini's free tier Google may use what you send to improve its products, and human reviewers may read it. Send only images you may share with a third party.
+
 ## Usage
 
 The examples below use the sample invoice at `tests/assets/sample-pdf-invoice.pdf`.
@@ -372,6 +388,18 @@ curl -N -X POST http://localhost:8000/api/v1/chat/stream \
 
 Accepted formats are flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav and webm, checked by file extension only. A chat message is limited to 4,000 characters, so a long recording can be transcribed and then be refused by the chat with a 422. A client should show the text first and send it only when the user confirms. `GET /api/v1/chat/transcribe/{id}` returns the stored transcript again.
 
+### Ask a question about an image
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat/image \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@photo.jpg;type=image/jpeg' \
+  -F 'question=What is on the desk?'
+# {"conversation_id":7,"answer":"A laptop and a cup of coffee.","model":"gemini-3.1-flash-lite","input_tokens":300,"output_tokens":20}
+```
+
+The question and the answer are saved as a new conversation (see `GET /api/v1/chat/conversations/7`), and their tokens count towards the daily budget and `/api/v1/chat/stats`. Each question is about one image; to ask about the image again, send it again.
+
 ## API reference
 
 The complete, interactive schema is available at `/docs` while the API is running.
@@ -412,6 +440,7 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/chat/stats` | Yes | Your own usage over the last `days` days (1-90, default 7): answers, input/output/cached/reasoning tokens in total and per day (days without answers are zeros), p50/p95 latency of finished answers, and the error rate (errors / answers; answers you cut off are counted separately). Only streamed conversations are stored, so only they appear here |
 | POST | `/api/v1/chat/transcribe` | Yes | Speech to text: multipart field `file` (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav or webm, at most `TRANSCRIBE_MAX_FILE_MB` MB). Returns `{"id", "text", "model", "created_at"}` and stores the text, not the audio. 413 too big, 415 wrong extension, 422 empty file, 429 when limited, 502/503/504 for provider problems |
 | GET | `/api/v1/chat/transcribe/{id}` | Yes | One of your transcriptions; 404 if it does not exist or is not yours |
+| POST | `/api/v1/chat/image` | Yes | Ask about one image: multipart fields `file` (jpg, jpeg, png or webp, at most `VISION_MAX_IMAGE_MB` MB) and `question` (1-4,000 characters). Returns `{"conversation_id", "answer", "model", "input_tokens", "output_tokens"}` and saves the question and answer, not the image. 413 too big or too many pixels, 415 wrong type or content that does not match, 422 empty or invalid file or bad question, 429 when limited, 502/503/504 for provider problems |
 | POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
 | GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
 | GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
