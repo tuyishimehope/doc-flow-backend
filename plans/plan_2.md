@@ -58,18 +58,19 @@ Nothing in Part B is needed for a working demo.
 - Not stored on purpose: token counts. Groq's transcription answer has none (only `text` and `x_groq.id`); it bills by audio hours. Audio length in seconds is B7.
 
 ### A5 · Log
-- [ ] One JSON log line per call: `provider`, `model`, `status`, `latency_ms`, `audio_bytes`
-- [ ] The transcript text and the file name are never logged (add the new fields to the log whitelist)
-- [ ] Check: make one good call and one failing call, then read the log lines
+- [~] One JSON log line per call: `provider`, `model`, `status`, `latency_ms`, `audio_bytes`
+- [~] The transcript text and the file name are never logged (add the new fields to the log whitelist)
+- [~] Check: make one good call and one failing call, then read the log lines
 
 ### A6 · Audio → answer, with no new chat code
-- [ ] The client sends the audio to `/transcribe`, then sends the returned `text` as `message` to the existing `/chat/stream`
-- [ ] Check: a spoken question gets a streamed answer
-- [ ] A text longer than the chat limit gets the chat's normal 422
+Backend: nothing to build. The frontend makes the two calls (`/transcribe`, then `/chat/stream` with the returned `text`).
+- [~] The client sends the audio to `/transcribe`, then sends the returned `text` as `message` to the existing `/chat/stream`
+- [~] Check: a spoken question gets a streamed answer
+- [~] A text longer than the chat limit gets the chat's normal 422
 
 ### A7 · Done when
-- [ ] You can record a 10 s question and get an answer with two `curl` commands
-- [ ] README has those two commands, the three settings, and one line on what is kept (transcript) and what is not (audio)
+- [~] You can record a 10 s question and get an answer with two `curl` commands
+- [~] README has those two commands, the three settings, and one line on what is kept (transcript) and what is not (audio)
 
 ## Part B · Extra steps (one at a time, only when needed)
 

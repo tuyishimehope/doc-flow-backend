@@ -263,6 +263,22 @@ broker_backend=redis://redis:6379/1
 MINIO_ENDPOINT=minio:9000
 ```
 
+### Speech to text
+
+The audio-to-text endpoint uses Groq's hosted Whisper model with the same `GROQ_AI_API_KEY` as chat:
+
+```dotenv
+GROQ_AI_API_KEY=replace-with-your-groq-key
+TRANSCRIBE_MODEL=whisper-large-v3-turbo
+TRANSCRIBE_MAX_FILE_MB=10
+TRANSCRIBE_TIMEOUT_SECONDS=60
+ENVIRONMENT=production
+```
+
+`TRANSCRIBE_MAX_FILE_MB` is at most 25 (the provider's free-tier limit) and `TRANSCRIBE_TIMEOUT_SECONDS` at most 120. `ENVIRONMENT=development` shows the values of failed SQL statements in error messages, which helps while coding; any other value (the default is `production`) hides them, because they contain users' messages and transcripts.
+
+What is kept: the transcript text, plus the model, the size of the audio in bytes and how long the provider took. What is not kept: the audio itself. Neither the transcript nor the file name is written to the logs, and Sentry never receives request bodies. The audio is sent to Groq, a hosted service, so do not send recordings you are not allowed to share with a third party.
+
 ## Usage
 
 The examples below use the sample invoice at `tests/assets/sample-pdf-invoice.pdf`.
@@ -338,6 +354,24 @@ curl "http://localhost:8000/api/v1/files/$FILE_ID" \
   --output downloaded-document.pdf
 ```
 
+### Ask a question by voice
+
+Two requests: the first turns the recording into text, the second sends that text to the chat.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat/transcribe \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@question.ogg;type=audio/ogg'
+# {"id":1,"text":"What is the capital of France?","model":"whisper-large-v3-turbo","created_at":"2026-10-20T14:30:44Z"}
+
+curl -N -X POST http://localhost:8000/api/v1/chat/stream \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"What is the capital of France?"}'
+```
+
+Accepted formats are flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav and webm, checked by file extension only. A chat message is limited to 4,000 characters, so a long recording can be transcribed and then be refused by the chat with a 422. A client should show the text first and send it only when the user confirms. `GET /api/v1/chat/transcribe/{id}` returns the stored transcript again.
+
 ## API reference
 
 The complete, interactive schema is available at `/docs` while the API is running.
@@ -376,6 +410,8 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/chat/models` | Yes | The values the `model` field accepts: `auto` (default, tries every configured provider in turn) plus each provider that has an API key. A chosen provider is tried first and the others still back it up; 400 if it is not configured, 422 for any name not on the list |
 | POST | `/api/v1/chat/stream` | Yes | Same message rules as `/api/v1/chat`, answered as Server-Sent Events and remembered: body `{"message": "...", "conversation_id": 12, "model": "groq"}` (`conversation_id` and `model` optional; omit it to start a new conversation). Events: `conversation` (`{"conversation_id"}`), `token` (`{"text"}`), then `done` (provider, model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes, 404 for a conversation that is not yours. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
 | GET | `/api/v1/chat/stats` | Yes | Your own usage over the last `days` days (1-90, default 7): answers, input/output/cached/reasoning tokens in total and per day (days without answers are zeros), p50/p95 latency of finished answers, and the error rate (errors / answers; answers you cut off are counted separately). Only streamed conversations are stored, so only they appear here |
+| POST | `/api/v1/chat/transcribe` | Yes | Speech to text: multipart field `file` (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav or webm, at most `TRANSCRIBE_MAX_FILE_MB` MB). Returns `{"id", "text", "model", "created_at"}` and stores the text, not the audio. 413 too big, 415 wrong extension, 422 empty file, 429 when limited, 502/503/504 for provider problems |
+| GET | `/api/v1/chat/transcribe/{id}` | Yes | One of your transcriptions; 404 if it does not exist or is not yours |
 | POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
 | GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
 | GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
