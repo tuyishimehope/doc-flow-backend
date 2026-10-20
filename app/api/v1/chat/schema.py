@@ -129,3 +129,11 @@ class TranscriptionResponse(BaseModel):
     text: str
     model: str
     created_at: datetime
+
+
+class ImageAnswerResponse(BaseModel):
+    conversation_id: int
+    answer: str
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import math
@@ -5,14 +6,17 @@ import os
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, UploadFile, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Path, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from pydantic import StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.chat.schema import (
     ChatRequest,
     ChatResponse,
     ChatStatsResponse,
+    ImageAnswerResponse,
+    MAX_MESSAGE_CHARS,
     ModelsResponse,
     StreamChatRequest,
     TranscriptionResponse,
@@ -26,7 +30,7 @@ from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
 from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
-from app.service.chat.chat import CHAT_PROMPT, answer_message, auto_title, get_transcription, stream_answer, transcribe_audio_file, trim_history
+from app.service.chat.chat import CHAT_PROMPT, answer_image_question, answer_message, auto_title, get_transcription, stream_answer, transcribe_audio_file, trim_history
 from app.service.chat.conversation import SessionFactory, save_while_streaming
 from app.service.chat.crud import (
     add_message,
@@ -52,6 +56,8 @@ from app.service.llm_client.llm_client import (
 from app.service.llm_client.registry import AUTO, ModelUnavailableError, get_llm_client, list_models
 from app.service.llm_client.transcriber import ALLOWED_AUDIO_EXTENSIONS
 from app.utils.chat_utils import convert_mb_to_bytes
+from app.utils.image import clean_image, image_policy
+from app.utils.upload import UploadRejected, read_checked_upload
 
 logger = logging.getLogger(__name__)
 
@@ -423,3 +429,44 @@ async def get_transcription_endpoint(
     if transcription is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Transcription not found")
     return transcription
+
+
+IMAGE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **ERROR_RESPONSES,
+    413: {"description": "The image is bigger than VISION_MAX_IMAGE_MB, or has too many pixels"},
+    415: {"description": "Not a jpg, jpeg, png or webp, or the content does not match the extension"},
+    422: {"description": "No file, an empty file, a file that is not a valid image, or a bad question"},
+    504: {"description": "The AI provider took longer than VISION_TIMEOUT_SECONDS"},
+}
+
+
+@CHAT_ROUTER.post("/image", response_model=ImageAnswerResponse, responses=IMAGE_ERROR_RESPONSES)
+async def answer_with_image(
+    current_user: CurrentUser,
+    file: UploadFile,
+    question: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MESSAGE_CHARS),
+        Form(),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    """One image and one question in, one answer out. The image is checked, cleaned and not kept."""
+    await _rate_limit(current_user=current_user)
+    await _token_budget(current_user=current_user, db_session=db_session)
+    _tag_request(current_user.id, settings.VISION_MODEL)
+    try:
+        upload = await read_checked_upload(file, image_policy())
+        image = await asyncio.to_thread(clean_image, upload.content)
+    except UploadRejected as exc:
+        raise HTTPException(exc.status_code, detail=exc.detail) from None
+    try:
+        return await answer_image_question(
+            user_id=current_user.id,
+            question=question,
+            upload=upload,
+            image=image,
+            db_session=db_session,
+        )
+    except LLMError as exc:
+        raise to_http_error(exc) from None
