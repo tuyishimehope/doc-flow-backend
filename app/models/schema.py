@@ -246,6 +246,10 @@ class Message(Base):
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Everything else: time to first piece, attempts, and later document citations.
     meta: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
+    # Which prompt file wrote this answer (for example ``chat_v1``). NULL for the user's own
+    # messages and for answers saved before this column existed. No default on purpose: the
+    # caller must say which prompt it used.
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)
 
