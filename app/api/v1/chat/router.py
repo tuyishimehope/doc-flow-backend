@@ -1,10 +1,11 @@
 import json
 import logging
 import math
+import os
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,7 @@ from app.api.v1.chat.schema import (
     ChatStatsResponse,
     ModelsResponse,
     StreamChatRequest,
+    TranscriptionResponse,
 )
 from app.core.config import settings
 from app.core.observability import set_tag, set_user_id
@@ -24,7 +26,7 @@ from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
 from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
-from app.service.chat.chat import CHAT_PROMPT, answer_message, auto_title, stream_answer, trim_history
+from app.service.chat.chat import CHAT_PROMPT, answer_message, auto_title, get_transcription, stream_answer, transcribe_audio_file, trim_history
 from app.service.chat.conversation import SessionFactory, save_while_streaming
 from app.service.chat.crud import (
     add_message,
@@ -48,6 +50,8 @@ from app.service.llm_client.llm_client import (
     StreamEvent,
 )
 from app.service.llm_client.registry import AUTO, ModelUnavailableError, get_llm_client, list_models
+from app.service.llm_client.transcriber import ALLOWED_AUDIO_EXTENSIONS
+from app.utils.chat_utils import convert_mb_to_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +106,7 @@ def to_http_error(exc: LLMError) -> HTTPException:
             detail=UNAVAILABLE,
             headers={"Retry-After": str(max(1, math.ceil(wait)))},
         )
-    if isinstance(exc, LLMUnavailableError):
+    if isinstance(exc, (LLMUnavailableError, LLMNotConfiguredError)):
         return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=UNAVAILABLE)
     return HTTPException(
         status.HTTP_502_BAD_GATEWAY,
@@ -353,3 +357,69 @@ def _format(event: StreamEvent) -> str:
 def _sse(event: str, data: dict[str, Any]) -> str:
     # JSON on a single line, so a newline inside the text can never end the event.
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+TRANSCRIBE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **ERROR_RESPONSES,
+    413: {"description": "The audio file is bigger than TRANSCRIBE_MAX_FILE_MB"},
+    415: {"description": "The file extension is not an audio format the provider accepts"},
+    422: {"description": "No file, or an empty file"},
+    504: {"description": "The provider took longer than TRANSCRIBE_TIMEOUT_SECONDS"},
+}
+
+
+@CHAT_ROUTER.post("/transcribe", response_model=TranscriptionResponse, responses=TRANSCRIBE_ERROR_RESPONSES)
+async def transcribe_audio(
+    current_user: CurrentUser,
+    file: UploadFile,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    await _rate_limit(current_user=current_user)
+    await _token_budget(current_user=current_user, db_session=db_session)
+    _tag_request(current_user.id, settings.TRANSCRIBE_MODEL)
+    _validate_audio_upload(file)
+    content = await file.read()
+    try:
+        saved = await transcribe_audio_file(
+            user_id=current_user.id,
+            filename=file.filename or "",
+            content=content,
+            content_type=file.content_type,
+            db_session=db_session,
+        )
+    except LLMError as exc:
+        raise to_http_error(exc) from None
+    return saved
+
+
+def _validate_audio_upload(file: UploadFile) -> None:
+    """Cheap checks before anything is sent to the provider. Extension only, not content."""
+    if not file.filename:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Please upload an audio file.")
+    extension = os.path.splitext(file.filename)[1].lower().lstrip(".")
+    if extension not in ALLOWED_AUDIO_EXTENSIONS:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio format. Use one of: " + ", ".join(sorted(ALLOWED_AUDIO_EXTENSIONS)) + ".",
+        )
+    if not file.size:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The audio file is empty.")
+    if file.size > convert_mb_to_bytes(settings.TRANSCRIBE_MAX_FILE_MB):
+        raise HTTPException(
+            413,
+            detail=f"The audio file is too big. The limit is {settings.TRANSCRIBE_MAX_FILE_MB} MB.",
+        )
+
+@CHAT_ROUTER.get(
+    "/transcribe/{transcription_id}",
+    response_model=TranscriptionResponse,
+    responses={404: {"description": "No such transcription, or it belongs to someone else"}},
+)
+async def get_transcription_endpoint(
+    transcription_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    transcription = await get_transcription(current_user.id, transcription_id, db_session)
+    if transcription is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Transcription not found")
+    return transcription

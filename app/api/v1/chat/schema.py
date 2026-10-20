@@ -121,3 +121,11 @@ class ChatStatsResponse(BaseModel):
     cached_tokens: int
     reasoning_tokens: int
     per_day: list[DailyUsage]
+
+class TranscriptionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    text: str
+    model: str
+    created_at: datetime

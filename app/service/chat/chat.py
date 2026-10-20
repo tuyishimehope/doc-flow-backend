@@ -1,8 +1,13 @@
 from collections.abc import AsyncGenerator, Sequence
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.schema import Transcription
 from app.prompts import load_prompt
+from app.service.chat.crud import get_transcription_by_id, save_transcription
 from app.service.chat.schema import AUTO_TITLE_CHARS
 from app.service.llm_client.llm_client import LLMClient, LLMResponse, Message, StreamEvent
+from app.service.llm_client.transcriber import transcribe
 
 CHAT_PROMPT = "chat_v1"
 
@@ -53,3 +58,30 @@ def stream_answer(
 ) -> AsyncGenerator[StreamEvent, None]:
     """Same request as ``answer_message``, but the answer arrives piece by piece."""
     return llm.stream(build_messages(message, history))
+
+async def transcribe_audio_file(
+    *,
+    user_id: int,
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+    db_session: AsyncSession,
+) -> Transcription:
+    """Send the audio to the provider, then keep the transcript. The audio is not kept."""
+    result = await transcribe(
+        user_id=user_id, filename=filename, content=content, content_type=content_type
+    )
+    return await save_transcription(
+        user_id=user_id,
+        text=result.text,
+        model=result.model,
+        audio_bytes=result.audio_bytes,
+        latency_ms=result.latency_ms,
+        db_session=db_session,
+    )
+
+
+async def get_transcription(
+    user_id: int, transcription_id: int, db_session: AsyncSession
+) -> Transcription | None:
+    return await get_transcription_by_id(user_id, transcription_id, db_session)
