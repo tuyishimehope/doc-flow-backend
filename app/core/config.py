@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     CHAT_DAILY_TOKEN_BUDGET: int = Field(default=200_000, ge=0)
     # Answers one user may have streaming at the same time (more get a 429).
     CHAT_MAX_CONCURRENT_STREAMS: int = Field(default=2, ge=1)
+    TRANSCRIBE_MODEL: str = Field(default="whisper-large-v3-turbo")
+    TRANSCRIBE_MAX_FILE_MB: int = Field(default=10, gt=0, le=25)
+    TRANSCRIBE_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
 
 
 def load_settings() -> Settings:
