@@ -24,7 +24,7 @@ from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
 from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
-from app.service.chat.chat import answer_message, auto_title, stream_answer, trim_history
+from app.service.chat.chat import CHAT_PROMPT, answer_message, auto_title, stream_answer, trim_history
 from app.service.chat.conversation import SessionFactory, save_while_streaming
 from app.service.chat.crud import (
     add_message,
@@ -263,7 +263,15 @@ async def chat_stream_endpoint(
         except StopAsyncIteration:
             raise to_http_error(LLMError("Stream ended without any event")) from None
         return StreamingResponse(
-            _event_stream(conversation.id, first, events, session_factory, current_user.id, slot_id),
+            _event_stream(
+                conversation.id,
+                first,
+                events,
+                session_factory,
+                current_user.id,
+                slot_id,
+                prompt_version=CHAT_PROMPT,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -296,9 +304,14 @@ async def _event_stream(
     session_factory: SessionFactory,
     user_id: int | None = None,
     slot_id: str | None = None,
+    prompt_version: str | None = None,
 ) -> AsyncIterator[str]:
     saving = save_while_streaming(
-        first, rest, conversation_id=conversation_id, session_factory=session_factory
+        first,
+        rest,
+        conversation_id=conversation_id,
+        session_factory=session_factory,
+        prompt_version=prompt_version,
     )
     try:
         yield _sse("conversation", {"conversation_id": conversation_id})

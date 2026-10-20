@@ -71,9 +71,19 @@ class Recorder:
     def __init__(self) -> None:
         self.saved: list[dict] = []
 
-    async def __call__(self, session_factory, conversation_id, text, status, model=None, meta=None, usage=None):
+    async def __call__(
+        self, session_factory, conversation_id, text, status, model=None, meta=None, usage=None, prompt_version=None
+    ):
         self.saved.append(
-            {"conversation_id": conversation_id, "text": text, "status": status, "model": model, "meta": meta, "usage": usage}
+            {
+                "conversation_id": conversation_id,
+                "text": text,
+                "status": status,
+                "model": model,
+                "meta": meta,
+                "usage": usage,
+                "prompt_version": prompt_version,
+            }
         )
 
 

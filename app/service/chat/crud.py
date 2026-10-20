@@ -81,6 +81,7 @@ async def add_message(
     model: str | None = None,
     meta: dict[str, Any] | None = None,
     usage: CallUsage | None = None,
+    prompt_version: str | None = None,
 ) -> Message:
     usage = usage or CallUsage()
     message = Message(
@@ -96,6 +97,7 @@ async def add_message(
         reasoning_tokens=usage.reasoning_tokens,
         latency_ms=usage.latency_ms,
         meta=meta,
+        prompt_version=prompt_version,
     )
     db_session.add(message)
     await db_session.execute(

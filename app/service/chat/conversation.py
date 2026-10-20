@@ -28,6 +28,7 @@ async def _save(
     model: str | None = None,
     meta: dict[str, Any] | None = None,
     usage: CallUsage | None = None,
+    prompt_version: str | None = None,
 ) -> None:
     # A new session: the request's own session may already be closed by now.
     async with session_factory() as session:
@@ -40,6 +41,7 @@ async def _save(
             model=model,
             meta=meta,
             usage=usage,
+            prompt_version=prompt_version,
             db_session=session,
         )
 
@@ -61,6 +63,7 @@ async def save_while_streaming(
     *,
     conversation_id: int,
     session_factory: SessionFactory,
+    prompt_version: str | None = None,
 ) -> AsyncGenerator[StreamEvent, None]:
     """Pass events through unchanged and store the assistant's message.
 
@@ -93,6 +96,7 @@ async def save_while_streaming(
                         reasoning_tokens=event.reasoning_tokens,
                         latency_ms=event.latency_ms,
                     ),
+                    prompt_version=prompt_version,
                 )
                 saved = True
             yield event
@@ -112,5 +116,11 @@ async def save_while_streaming(
         finally:
             if not saved and parts:
                 await _finish_even_if_cancelled(
-                    _save(session_factory, conversation_id, "".join(parts), outcome)
+                    _save(
+                        session_factory,
+                        conversation_id,
+                        "".join(parts),
+                        outcome,
+                        prompt_version=prompt_version,
+                    )
                 )
