@@ -263,3 +263,16 @@ class Message(Base):
         # "The last N messages of a conversation" is the hot query.
         Index("ix_message_conversation_id_id", "conversation_id", "id"),
     )
+
+class Transcription(Base):
+    __tablename__ = "transcription"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    audio_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
