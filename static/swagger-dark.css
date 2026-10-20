@@ -1,0 +1,509 @@
+@import url("https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css");
+
+/*
+ * Trustplot Swagger theme
+ *
+ * IMPORTANT:
+ * Light mode uses Swagger's original CSS without modification.
+ *
+ * We override COLORS ONLY when the browser/OS prefers dark mode.
+ * Do not modify padding, width, display, positioning, font sizes,
+ * margins, etc. This preserves Swagger's native layout.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --tp-bg: #0f172a;
+    --tp-surface: #111827;
+    --tp-surface-2: #182235;
+    --tp-border: #334155;
+
+    --tp-text: #f3f4f6;
+    --tp-text-secondary: #d1d5db;
+    --tp-text-muted: #94a3b8;
+
+    --tp-code: #08111f;
+
+    --tp-blue: #60a5fa;
+    --tp-green: #34d399;
+    --tp-red: #f87171;
+    --tp-yellow: #fbbf24;
+    --tp-purple: #a78bfa;
+  }
+
+  /* ========================================
+       Page
+       ======================================== */
+
+  html,
+  body {
+    background-color: var(--tp-bg);
+  }
+
+  .swagger-ui {
+    color: var(--tp-text);
+  }
+
+  /* ========================================
+       API title / description
+       ======================================== */
+
+  .swagger-ui .info .title,
+  .swagger-ui .info h1,
+  .swagger-ui .info h2,
+  .swagger-ui .info h3,
+  .swagger-ui .info h4,
+  .swagger-ui .info h5 {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .info p,
+  .swagger-ui .info li,
+  .swagger-ui .info table,
+  .swagger-ui .info span {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui a {
+    color: var(--tp-blue);
+  }
+
+  /* ========================================
+       Top scheme / server area
+       ======================================== */
+
+  .swagger-ui .scheme-container {
+    background-color: var(--tp-surface);
+    box-shadow: none;
+  }
+
+  .swagger-ui .scheme-container label,
+  .swagger-ui .scheme-container span {
+    color: var(--tp-text-secondary);
+  }
+
+  /* ========================================
+       Tags
+       Parcel / Zoning / Report / default
+       ======================================== */
+
+  .swagger-ui .opblock-tag {
+    color: var(--tp-text);
+    border-bottom-color: var(--tp-border);
+  }
+
+  .swagger-ui .opblock-tag small {
+    color: var(--tp-text-muted);
+  }
+
+  /* ========================================
+       Endpoint summaries
+       ======================================== */
+
+  .swagger-ui .opblock .opblock-summary-path,
+  .swagger-ui .opblock .opblock-summary-description {
+    color: var(--tp-text-secondary);
+  }
+
+  /* GET */
+
+  .swagger-ui .opblock.opblock-get {
+    background-color: rgba(96, 165, 250, 0.08);
+    border-color: var(--tp-blue);
+  }
+
+  /* POST */
+
+  .swagger-ui .opblock.opblock-post {
+    background-color: rgba(52, 211, 153, 0.08);
+    border-color: var(--tp-green);
+  }
+
+  /* PUT */
+
+  .swagger-ui .opblock.opblock-put {
+    background-color: rgba(251, 191, 36, 0.08);
+    border-color: var(--tp-yellow);
+  }
+
+  /* PATCH */
+
+  .swagger-ui .opblock.opblock-patch {
+    background-color: rgba(167, 139, 250, 0.08);
+    border-color: var(--tp-purple);
+  }
+
+  /* DELETE */
+
+  .swagger-ui .opblock.opblock-delete {
+    background-color: rgba(248, 113, 113, 0.08);
+    border-color: var(--tp-red);
+  }
+
+  /* ========================================
+       Endpoint body
+       ======================================== */
+
+  .swagger-ui .opblock-body {
+    background-color: var(--tp-surface);
+    color: var(--tp-text-secondary);
+  }
+
+  /* ========================================
+       Parameters / Responses headers
+       ======================================== */
+
+  .swagger-ui .opblock .opblock-section-header {
+    background-color: var(--tp-surface-2);
+    box-shadow: none;
+  }
+
+  .swagger-ui .opblock .opblock-section-header h4,
+  .swagger-ui .opblock .opblock-section-header label {
+    color: var(--tp-text);
+  }
+
+  /* ========================================
+       Parameters
+       ======================================== */
+
+  .swagger-ui .parameter__name {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .parameter__type,
+  .swagger-ui .parameter__in {
+    color: var(--tp-text-muted);
+  }
+
+  .swagger-ui .parameters-col_description,
+  .swagger-ui .parameters-col_name {
+    color: var(--tp-text-secondary);
+  }
+
+  /* ========================================
+       Inputs
+       ======================================== */
+
+  .swagger-ui input,
+  .swagger-ui textarea,
+  .swagger-ui select {
+    background-color: var(--tp-surface-2);
+    color: var(--tp-text);
+    border-color: var(--tp-border);
+  }
+
+  .swagger-ui input::placeholder,
+  .swagger-ui textarea::placeholder {
+    color: var(--tp-text-muted);
+  }
+
+  /* ========================================
+       Text / descriptions
+       ======================================== */
+
+  .swagger-ui .opblock-description-wrapper p,
+  .swagger-ui .opblock-external-docs-wrapper p,
+  .swagger-ui .opblock-title_normal p,
+  .swagger-ui .markdown p,
+  .swagger-ui .markdown li,
+  .swagger-ui .renderedMarkdown p,
+  .swagger-ui .renderedMarkdown li {
+    color: var(--tp-text-secondary);
+  }
+
+  /* ========================================
+       Tables
+       ======================================== */
+
+  .swagger-ui table thead tr th {
+    color: var(--tp-text);
+    border-bottom-color: var(--tp-border);
+  }
+
+  .swagger-ui table tbody tr td {
+    color: var(--tp-text-secondary);
+    border-bottom-color: var(--tp-border);
+  }
+
+  /* ========================================
+       Responses
+       ======================================== */
+
+  .swagger-ui .responses-wrapper,
+  .swagger-ui .responses-inner,
+  .swagger-ui .responses-table {
+    background-color: var(--tp-surface);
+  }
+
+  .swagger-ui .responses-table td,
+  .swagger-ui .responses-table th {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui .response-col_status {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .response-col_description,
+  .swagger-ui .response-col_links {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui .responses-inner h4,
+  .swagger-ui .responses-inner h5 {
+    color: var(--tp-text);
+  }
+
+  /* ========================================
+       Curl / response / request URL
+       ======================================== */
+
+  .swagger-ui .highlight-code,
+  .swagger-ui .microlight,
+  .swagger-ui pre,
+  .swagger-ui .curl-command,
+  .swagger-ui .request-url pre {
+    background-color: var(--tp-code) !important;
+    color: var(--tp-text) !important;
+  }
+
+  /* ========================================
+       Buttons
+       ======================================== */
+
+  .swagger-ui .btn {
+    color: var(--tp-text-secondary);
+    border-color: var(--tp-border);
+  }
+
+  .swagger-ui .btn.cancel {
+    color: var(--tp-red);
+    border-color: var(--tp-red);
+  }
+
+  .swagger-ui .btn.authorize {
+    color: var(--tp-green);
+    border-color: var(--tp-green);
+  }
+
+  .swagger-ui .btn.authorize svg {
+    fill: var(--tp-green);
+  }
+
+  /* ========================================
+       Schemas
+       ======================================== */
+
+  .swagger-ui section.models {
+    background-color: var(--tp-surface);
+    border-color: var(--tp-border);
+  }
+
+  .swagger-ui section.models h4 {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui section.models .model-container,
+  .swagger-ui .model-box {
+    background-color: var(--tp-surface);
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui section.models .model-container {
+    border-color: var(--tp-border);
+  }
+
+  .swagger-ui .model,
+  .swagger-ui .property,
+  .swagger-ui .property-row {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui .model-title,
+  .swagger-ui .model-title__text,
+  .swagger-ui .prop-name {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .prop-type {
+    color: #818cf8;
+  }
+
+  .swagger-ui .prop-format {
+    color: var(--tp-text-muted);
+  }
+
+  /* Schema controls */
+
+  .swagger-ui .model-box-control,
+  .swagger-ui .model-toggle {
+    background-color: transparent;
+    color: var(--tp-text-secondary);
+    border-color: transparent;
+  }
+
+  .swagger-ui section.models button {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui section.models button:not(.model-box-control) {
+    background-color: var(--tp-surface-2);
+    color: var(--tp-text-secondary);
+    border-color: var(--tp-border);
+  }
+
+  /* ========================================
+       Schema tabs
+       ======================================== */
+
+  .swagger-ui .tab li button.tablinks {
+    color: var(--tp-text-muted);
+  }
+
+  .swagger-ui .tab li.active button.tablinks {
+    color: var(--tp-blue);
+  }
+
+  /* ========================================
+       Modal
+       ======================================== */
+
+  .swagger-ui .dialog-ux .modal-ux {
+    background-color: var(--tp-surface);
+    border-color: var(--tp-border);
+  }
+
+  .swagger-ui .dialog-ux .modal-ux-header h3,
+  .swagger-ui .dialog-ux .modal-ux-content h4,
+  .swagger-ui .dialog-ux .modal-ux-content p,
+  .swagger-ui .dialog-ux .modal-ux-content label {
+    color: var(--tp-text);
+  }
+
+  /* ========================================
+       SVG icons
+       ======================================== */
+
+  .swagger-ui svg {
+    fill: currentColor;
+  }
+
+  /* ========================================
+       Scrollbars
+       ======================================== */
+
+  ::-webkit-scrollbar-track {
+    background: var(--tp-surface);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--tp-border);
+  }
+
+  /* ========================================
+   Inputs / fields
+   ======================================== */
+
+  .swagger-ui input[type="text"],
+  .swagger-ui input[type="search"],
+  .swagger-ui input[type="email"],
+  .swagger-ui input[type="password"],
+  .swagger-ui input[type="number"],
+  .swagger-ui input[type="url"],
+  .swagger-ui textarea,
+  .swagger-ui select {
+    background-color: var(--tp-surface-2) !important;
+    color: var(--tp-text) !important;
+    border-color: var(--tp-border) !important;
+  }
+
+  /* Swagger parameter inputs */
+  .swagger-ui .parameters-container input,
+  .swagger-ui .parameters-container textarea,
+  .swagger-ui .parameters-container select {
+    background-color: var(--tp-surface-2) !important;
+    color: var(--tp-text) !important;
+    border-color: var(--tp-border) !important;
+  }
+
+  /* Request body editor fields */
+  .swagger-ui .body-param textarea {
+    background-color: var(--tp-code) !important;
+    color: var(--tp-text) !important;
+    border-color: var(--tp-border) !important;
+  }
+
+  /* Placeholder text */
+  .swagger-ui input::placeholder,
+  .swagger-ui textarea::placeholder {
+    color: var(--tp-text-muted) !important;
+    opacity: 1;
+  }
+
+  /* Focus state */
+  .swagger-ui input:focus,
+  .swagger-ui textarea:focus,
+  .swagger-ui select:focus {
+    background-color: var(--tp-surface-2) !important;
+    color: var(--tp-text) !important;
+    border-color: var(--tp-blue) !important;
+    outline: none !important;
+  }
+
+  /* Dropdown options */
+  .swagger-ui select option {
+    background-color: var(--tp-surface-2);
+    color: var(--tp-text);
+  }
+
+  /* ========================================
+       Arrows / chevrons and info links
+       (their button has no colour of its own, so fill falls back to black)
+       ======================================== */
+
+  .swagger-ui .opblock-tag svg,
+  .swagger-ui .opblock-summary svg,
+  .swagger-ui .opblock-summary-control svg,
+  .swagger-ui .expand-methods svg,
+  .swagger-ui .expand-operation svg,
+  .swagger-ui .models-control svg,
+  .swagger-ui .json-schema-2020-12-accordion svg {
+    fill: var(--tp-text-secondary);
+  }
+
+  .swagger-ui .info a,
+  .swagger-ui .info .base-url {
+    color: var(--tp-blue);
+  }
+
+  /* ========================================
+       OpenAPI 3.1 schemas (json-schema-2020-12)
+       FastAPI >= 0.99 emits 3.1, so these replace the older .model-* classes.
+       ======================================== */
+
+  .swagger-ui .json-schema-2020-12,
+  .swagger-ui .json-schema-2020-12__attribute,
+  .swagger-ui .json-schema-2020-12-keyword,
+  .swagger-ui .json-schema-2020-12-keyword__value {
+    color: var(--tp-text-secondary);
+  }
+
+  .swagger-ui .json-schema-2020-12__title,
+  .swagger-ui .json-schema-2020-12-keyword__name {
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .json-schema-2020-12-head,
+  .swagger-ui .json-schema-2020-12-accordion {
+    background-color: transparent;
+    color: var(--tp-text);
+  }
+
+  .swagger-ui .json-schema-2020-12-expand-deep-button,
+  .swagger-ui .json-schema-2020-12-accordion__children button {
+    color: var(--tp-text-secondary);
+  }
+}
