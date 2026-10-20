@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     TRANSCRIBE_MODEL: str = Field(default="whisper-large-v3-turbo")
     TRANSCRIBE_MAX_FILE_MB: int = Field(default=10, gt=0, le=25)
     TRANSCRIBE_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
+    # "development" shows the values of failed SQL statements in error messages. Anything else,
+    # including this default, hides them, because they hold users' messages and transcripts.
+    ENVIRONMENT: str = Field(default="production")
 
 
 def load_settings() -> Settings:
