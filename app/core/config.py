@@ -112,6 +112,11 @@ class Settings(BaseSettings):
     # "development" shows the values of failed SQL statements in error messages. Anything else,
     # including this default, hides them, because they hold users' messages and transcripts.
     ENVIRONMENT: str = Field(default="production")
+    # Image questions use the Gemini key and base URL above. The limit is on the raw file: base64 makes
+    # it a third bigger, and Gemini accepts 20 MB for the whole request.
+    VISION_MODEL: str = Field(default="gemini-3.1-flash-lite")
+    VISION_MAX_IMAGE_MB: int = Field(default=5, gt=0, le=14)
+    VISION_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
 
 
 def load_settings() -> Settings:
