@@ -57,7 +57,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-# docs_url=None turns off FastAPI's built-in /docs; register_docs() serves our own.
 app = FastAPI(lifespan=lifespan, docs_url=None)
 
 app.add_middleware(
