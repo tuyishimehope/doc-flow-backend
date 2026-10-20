@@ -8,6 +8,8 @@ from app.service.document.crud import delete_document_by_id, get_all_documents, 
 from app.service.document.document import process_document, queue_processing_request
 from app.service.document.schema import DocumentProcessingResponse, DocumentUpdate, Document_Status, PaginatedDocumentResponse, ProcessRequest, Processing_Type, DocumentResponse, ProcessingJobResponse, ProcessingRequestResponse
 from app.utils.document import valid_type_document, validate_document_content
+from app.utils.scan import scan_upload
+from app.utils.upload import UploadRejected
 from app.service.auth.auth import CurrentUser
 from app.core.config import settings
 
@@ -27,6 +29,10 @@ async def post_document_endpoint(file: UploadFile, current_user: CurrentUser, pr
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_BYTES} byte upload limit",
         )
+    try:
+        await scan_upload(content)  # before any parser touches the file
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     if not validate_document_content(file, content):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

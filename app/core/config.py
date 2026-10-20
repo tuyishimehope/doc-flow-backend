@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     VISION_MODEL: str = Field(default="gemini-3.1-flash-lite")
     VISION_MAX_IMAGE_MB: int = Field(default=5, gt=0, le=14)
     VISION_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
+    # Virus scanning of uploads with ClamAV (clamd). An empty host switches it off; once a host is set,
+    # an unreachable scanner makes uploads fail (503) instead of passing unscanned.
+    CLAMAV_HOST: str = ""
+    CLAMAV_PORT: int = Field(default=3310, ge=1, le=65535)
+    CLAMAV_TIMEOUT_SECONDS: int = Field(default=30, gt=0, le=300)
 
 
 def load_settings() -> Settings:

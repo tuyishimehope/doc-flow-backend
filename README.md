@@ -291,7 +291,19 @@ VISION_TIMEOUT_SECONDS=60
 
 `VISION_MAX_IMAGE_MB` is at most 14: base64 makes the file a third bigger and Gemini accepts 20 MB per request. Also set a request size limit in the reverse proxy (for example `client_max_body_size` in nginx), because the server has read the whole upload before the API can refuse it.
 
-Every upload is checked before it is used, following the OWASP File Upload Cheat Sheet: the extension must be on an allowlist (jpg, jpeg, png, webp), the size is limited while reading, the first bytes must match the extension, the picture is refused above 40 million pixels, and the image is then decoded and written again, which removes EXIF data (GPS position, camera, time), text chunks and bytes hidden after the image. The browser's content type is ignored. What is kept: the question, the answer, the token counts, and for the image only its size, type, pixel size and SHA-256. The image itself is not stored, and neither the question, the answer nor the file name is logged. The checks live in `app/utils/upload.py` (any feature) and `app/utils/image.py` (images), so a document feature can reuse them with its own list of types. Not done yet: virus scanning, and removing active content from PDF or Office files.
+Every upload is checked before it is used, following the OWASP File Upload Cheat Sheet: the extension must be on an allowlist (jpg, jpeg, png, webp), the size is limited while reading, the first bytes must match the extension, the picture is refused above 40 million pixels, and the image is then decoded and written again, which removes EXIF data (GPS position, camera, time), text chunks and bytes hidden after the image. The browser's content type is ignored. What is kept: the question, the answer, the token counts, and for the image only its size, type, pixel size and SHA-256. The image itself is not stored, and neither the question, the answer nor the file name is logged. The checks live in `app/utils/upload.py` (any feature) and `app/utils/image.py` (images), so a document feature can reuse them with its own list of types. Not done yet: removing active content from PDF or Office files.
+
+#### Virus scanning
+
+Image and document uploads can be scanned with [ClamAV](https://www.clamav.net/) before they are decoded, parsed or stored. It is off when `CLAMAV_HOST` is empty (the API logs one warning at the first upload). Once `CLAMAV_HOST` is set the scan is required: if the scanner cannot be reached or does not answer within `CLAMAV_TIMEOUT_SECONDS`, the upload is refused with 503 instead of being let through. A file with a virus is refused with 422 and the signature name is logged, not returned.
+
+```
+CLAMAV_HOST=clamav      # service name in docker compose; use localhost if the API runs outside Docker
+CLAMAV_PORT=3310
+CLAMAV_TIMEOUT_SECONDS=30
+```
+
+Start the scanner with `docker compose --profile scan up -d clamav`. The first start downloads the virus database and takes a few minutes. ClamAV needs at least 3 GiB of memory (4 GiB is better), so it is too heavy for the smallest servers; there, keep it off and rely on the other checks, or run it on a separate machine. The scan uses clamd's `INSTREAM` command, so no file is written to disk. Scanning does not replace the other checks, it adds to them.
 
 On Gemini's free tier Google may use what you send to improve its products, and human reviewers may read it. Send only images you may share with a third party.
 

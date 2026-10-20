@@ -106,7 +106,7 @@ The file checks are reusable and live in `app/utils/upload.py` (any feature) and
 | B2 | ~~First-bytes check, open with Pillow, pixel limit~~ | Done in A4 |
 | B3 | Shrink big photos before sending (pick the size after A1 shows tokens against size) | The log shows slow calls or high token counts |
 | B4 | ~~Remove EXIF data~~ | Done in A4 (the image is written again) |
-| B4b | Virus scan (ClamAV container) and a file status (`SCANNING` / `CLEAN` / `REJECTED`) before processing; the same for PDF and DOCX with active content removed | Other people can upload, or you start Part 4 (documents) |
+| B4b | ~~Virus scan (ClamAV container)~~ done (`app/utils/scan.py`, images and documents, off when `CLAMAV_HOST` is empty). Still open: a file status (`SCANNING` / `CLEAN` / `REJECTED`) before processing, and PDF/DOCX with active content removed | Other people can upload, or you start Part 4 (documents) |
 | B5 | Follow-up questions about the same image: keep the image in MinIO under the user's id, send it again with the history, delete it with the conversation | Users ask a second question about one image |
 | B6 | Second provider (for example Groq `qwen/qwen3.8-27b`: 3 images per request, about 2,048 tokens each) and a fallback | The log shows provider errors or the free tier says stop |
 | B7 | Several images in one question | A use case needs to compare two images |

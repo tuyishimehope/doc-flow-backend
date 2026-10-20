@@ -57,6 +57,7 @@ from app.service.llm_client.registry import AUTO, ModelUnavailableError, get_llm
 from app.service.llm_client.transcriber import ALLOWED_AUDIO_EXTENSIONS
 from app.utils.chat_utils import convert_mb_to_bytes
 from app.utils.image import clean_image, image_policy
+from app.utils.scan import scan_upload
 from app.utils.upload import UploadRejected, read_checked_upload
 
 logger = logging.getLogger(__name__)
@@ -457,6 +458,7 @@ async def answer_with_image(
     _tag_request(current_user.id, settings.VISION_MODEL)
     try:
         upload = await read_checked_upload(file, image_policy())
+        await scan_upload(upload.content)
         image = await asyncio.to_thread(clean_image, upload.content)
     except UploadRejected as exc:
         raise HTTPException(exc.status_code, detail=exc.detail) from None
