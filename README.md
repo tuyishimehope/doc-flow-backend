@@ -263,6 +263,50 @@ broker_backend=redis://redis:6379/1
 MINIO_ENDPOINT=minio:9000
 ```
 
+### Speech to text
+
+The audio-to-text endpoint uses Groq's hosted Whisper model with the same `GROQ_AI_API_KEY` as chat:
+
+```dotenv
+GROQ_AI_API_KEY=replace-with-your-groq-key
+TRANSCRIBE_MODEL=whisper-large-v3-turbo
+TRANSCRIBE_MAX_FILE_MB=10
+TRANSCRIBE_TIMEOUT_SECONDS=60
+ENVIRONMENT=production
+```
+
+`TRANSCRIBE_MAX_FILE_MB` is at most 25 (the provider's free-tier limit) and `TRANSCRIBE_TIMEOUT_SECONDS` at most 120. `ENVIRONMENT=development` shows the values of failed SQL statements in error messages, which helps while coding; any other value (the default is `production`) hides them, because they contain users' messages and transcripts.
+
+What is kept: the transcript text, plus the model, the size of the audio in bytes and how long the provider took. What is not kept: the audio itself. Neither the transcript nor the file name is written to the logs, and Sentry never receives request bodies. The audio is sent to Groq, a hosted service, so do not send recordings you are not allowed to share with a third party.
+
+### Image questions
+
+Questions about an uploaded image go to Gemini through its OpenAI-compatible endpoint, with the same `GEMINI_AI_API_KEY` and `GEMINI_BASE_URL` as the chat fallback:
+
+```dotenv
+VISION_MODEL=gemini-3.1-flash-lite
+VISION_MAX_IMAGE_MB=5
+VISION_TIMEOUT_SECONDS=60
+```
+
+`VISION_MAX_IMAGE_MB` is at most 14: base64 makes the file a third bigger and Gemini accepts 20 MB per request. Also set a request size limit in the reverse proxy (for example `client_max_body_size` in nginx), because the server has read the whole upload before the API can refuse it.
+
+Every upload is checked before it is used, following the OWASP File Upload Cheat Sheet: the extension must be on an allowlist (jpg, jpeg, png, webp), the size is limited while reading, the first bytes must match the extension, the picture is refused above 40 million pixels, and the image is then decoded and written again, which removes EXIF data (GPS position, camera, time), text chunks and bytes hidden after the image. The browser's content type is ignored. What is kept: the question, the answer, the token counts, and for the image only its size, type, pixel size and SHA-256. The image itself is not stored, and neither the question, the answer nor the file name is logged. The checks live in `app/utils/upload.py` (any feature) and `app/utils/image.py` (images), so a document feature can reuse them with its own list of types. Not done yet: removing active content from PDF or Office files.
+
+#### Virus scanning
+
+Image and document uploads can be scanned with [ClamAV](https://www.clamav.net/) before they are decoded, parsed or stored. It is off when `CLAMAV_HOST` is empty (the API logs one warning at the first upload). Once `CLAMAV_HOST` is set the scan is required: if the scanner cannot be reached or does not answer within `CLAMAV_TIMEOUT_SECONDS`, the upload is refused with 503 instead of being let through. A file with a virus is refused with 422 and the signature name is logged, not returned.
+
+```
+CLAMAV_HOST=clamav      # service name in docker compose; use localhost if the API runs outside Docker
+CLAMAV_PORT=3310
+CLAMAV_TIMEOUT_SECONDS=30
+```
+
+Start the scanner with `docker compose --profile scan up -d clamav`. The first start downloads the virus database and takes a few minutes. ClamAV needs at least 3 GiB of memory (4 GiB is better), so it is too heavy for the smallest servers; there, keep it off and rely on the other checks, or run it on a separate machine. The scan uses clamd's `INSTREAM` command, so no file is written to disk. Scanning does not replace the other checks, it adds to them.
+
+On Gemini's free tier Google may use what you send to improve its products, and human reviewers may read it. Send only images you may share with a third party.
+
 ## Usage
 
 The examples below use the sample invoice at `tests/assets/sample-pdf-invoice.pdf`.
@@ -338,6 +382,36 @@ curl "http://localhost:8000/api/v1/files/$FILE_ID" \
   --output downloaded-document.pdf
 ```
 
+### Ask a question by voice
+
+Two requests: the first turns the recording into text, the second sends that text to the chat.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat/transcribe \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@question.ogg;type=audio/ogg'
+# {"id":1,"text":"What is the capital of France?","model":"whisper-large-v3-turbo","created_at":"2026-10-20T14:30:44Z"}
+
+curl -N -X POST http://localhost:8000/api/v1/chat/stream \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"What is the capital of France?"}'
+```
+
+Accepted formats are flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav and webm, checked by file extension only. A chat message is limited to 4,000 characters, so a long recording can be transcribed and then be refused by the chat with a 422. A client should show the text first and send it only when the user confirms. `GET /api/v1/chat/transcribe/{id}` returns the stored transcript again.
+
+### Ask a question about an image
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat/image \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@photo.jpg;type=image/jpeg' \
+  -F 'question=What is on the desk?'
+# {"conversation_id":7,"answer":"A laptop and a cup of coffee.","model":"gemini-3.1-flash-lite","input_tokens":300,"output_tokens":20}
+```
+
+The question and the answer are saved as a new conversation (see `GET /api/v1/chat/conversations/7`), and their tokens count towards the daily budget and `/api/v1/chat/stats`. Each question is about one image; to ask about the image again, send it again.
+
 ## API reference
 
 The complete, interactive schema is available at `/docs` while the API is running.
@@ -376,6 +450,9 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/chat/models` | Yes | The values the `model` field accepts: `auto` (default, tries every configured provider in turn) plus each provider that has an API key. A chosen provider is tried first and the others still back it up; 400 if it is not configured, 422 for any name not on the list |
 | POST | `/api/v1/chat/stream` | Yes | Same message rules as `/api/v1/chat`, answered as Server-Sent Events and remembered: body `{"message": "...", "conversation_id": 12, "model": "groq"}` (`conversation_id` and `model` optional; omit it to start a new conversation). Events: `conversation` (`{"conversation_id"}`), `token` (`{"text"}`), then `done` (provider, model, token counts, timings) or `error` (`code`, `message`). Failures before the first token use normal HTTP status codes, 404 for a conversation that is not yours. Browsers need `fetch` with a stream reader, because `EventSource` only supports GET |
 | GET | `/api/v1/chat/stats` | Yes | Your own usage over the last `days` days (1-90, default 7): answers, input/output/cached/reasoning tokens in total and per day (days without answers are zeros), p50/p95 latency of finished answers, and the error rate (errors / answers; answers you cut off are counted separately). Only streamed conversations are stored, so only they appear here |
+| POST | `/api/v1/chat/transcribe` | Yes | Speech to text: multipart field `file` (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav or webm, at most `TRANSCRIBE_MAX_FILE_MB` MB). Returns `{"id", "text", "model", "created_at"}` and stores the text, not the audio. 413 too big, 415 wrong extension, 422 empty file, 429 when limited, 502/503/504 for provider problems |
+| GET | `/api/v1/chat/transcribe/{id}` | Yes | One of your transcriptions; 404 if it does not exist or is not yours |
+| POST | `/api/v1/chat/image` | Yes | Ask about one image: multipart fields `file` (jpg, jpeg, png or webp, at most `VISION_MAX_IMAGE_MB` MB) and `question` (1-4,000 characters). Returns `{"conversation_id", "answer", "model", "input_tokens", "output_tokens"}` and saves the question and answer, not the image. 413 too big or too many pixels, 415 wrong type or content that does not match, 422 empty or invalid file or bad question, 429 when limited, 502/503/504 for provider problems |
 | POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
 | GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
 | GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |

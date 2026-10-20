@@ -246,6 +246,10 @@ class Message(Base):
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Everything else: time to first piece, attempts, and later document citations.
     meta: Mapped[Optional[dict]] = mapped_column("metadata", JSON, nullable=True)
+    # Which prompt file wrote this answer (for example ``chat_v1``). NULL for the user's own
+    # messages and for answers saved before this column existed. No default on purpose: the
+    # caller must say which prompt it used.
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -259,3 +263,16 @@ class Message(Base):
         # "The last N messages of a conversation" is the hot query.
         Index("ix_message_conversation_id_id", "conversation_id", "id"),
     )
+
+class Transcription(Base):
+    __tablename__ = "transcription"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    audio_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)

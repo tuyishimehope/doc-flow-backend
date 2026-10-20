@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.api.v1.document.document import router as document_router
@@ -12,6 +13,7 @@ from app.api.v1.auth.auth import router as auth_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
 from app.api.v1.chat.conversations import CONVERSATIONS_ROUTER
 from app.api.v1.chat.router import CHAT_ROUTER
+from app.core.docs import register_docs
 from app.db.engine import engine
 from app.core.minio import minio_client
 from app.core.config import settings
@@ -39,7 +41,7 @@ class HealthResponse(BaseModel):
 HEALTH_CHECK_TIMEOUT_SECONDS = 3
 
 
-@asynccontextmanager    
+@asynccontextmanager
 async def lifespan(app: FastAPI):
     await wait_for_dependencies()
     logger.info("Checking DB connection")
@@ -55,7 +57,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, docs_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,7 +66,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.mount(
+    "/static",
+    StaticFiles(
+        directory="static"
+    ),
+    name="static",
+)
+register_docs(app)
 
 app.include_router(router=auth_router)
 app.include_router(router=document_router)
@@ -72,7 +81,6 @@ app.include_router(router=file_router)
 app.include_router(router=processing_request_router)
 app.include_router(router=CHAT_ROUTER)
 app.include_router(router=CONVERSATIONS_ROUTER)
-
 
 
 @app.get("/", response_model=StartResponse)
@@ -97,13 +105,15 @@ async def health(response: Response):
         "storage": asyncio.to_thread(check_minio),
     }
     outcomes = await asyncio.gather(
-        *(asyncio.wait_for(check, HEALTH_CHECK_TIMEOUT_SECONDS) for check in checks.values()),
+        *(asyncio.wait_for(check, HEALTH_CHECK_TIMEOUT_SECONDS)
+          for check in checks.values()),
         return_exceptions=True,
     )
     results = {}
     for name, outcome in zip(checks, outcomes):
         if isinstance(outcome, BaseException):
-            logger.warning("Health check failed", extra={"dependency": name, "error": repr(outcome)})
+            logger.warning("Health check failed", extra={
+                           "dependency": name, "error": repr(outcome)})
             results[name] = "error"
         else:
             results[name] = "ok"

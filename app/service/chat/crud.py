@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.schema import Conversation, Message
+from app.models.schema import Conversation, Message, Transcription
 from app.service.chat.schema import CallUsage, MessageRole, MessageStatus
 
 
@@ -81,6 +81,7 @@ async def add_message(
     model: str | None = None,
     meta: dict[str, Any] | None = None,
     usage: CallUsage | None = None,
+    prompt_version: str | None = None,
 ) -> Message:
     usage = usage or CallUsage()
     message = Message(
@@ -96,6 +97,7 @@ async def add_message(
         reasoning_tokens=usage.reasoning_tokens,
         latency_ms=usage.latency_ms,
         meta=meta,
+        prompt_version=prompt_version,
     )
     db_session.add(message)
     await db_session.execute(
@@ -206,3 +208,22 @@ async def get_tokens_used_since(user_id: int, since: datetime, db_session: Async
         ).where(*_assistant_messages_since(user_id, since))
     )
     return int(result.scalar_one())
+
+async def save_transcription(
+    user_id: int, text: str, model: str, audio_bytes: int, latency_ms: int, db_session: AsyncSession
+) -> Transcription:
+    transcription = Transcription(user_id=user_id, text=text, model=model, audio_bytes=audio_bytes, latency_ms=latency_ms)
+    db_session.add(transcription)
+    await db_session.commit()
+    await db_session.refresh(transcription)
+    return transcription
+
+async def get_transcription_by_id(
+    user_id: int, transcription_id: int, db_session: AsyncSession
+) -> Transcription | None:
+    """The user's own row, or None: someone else's id looks the same as a missing one."""
+    statement = select(Transcription).where(
+        Transcription.user_id == user_id, Transcription.id == transcription_id
+    )
+    result = await db_session.execute(statement)
+    return result.scalar_one_or_none()

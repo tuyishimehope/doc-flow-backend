@@ -78,6 +78,20 @@ services:
     volumes:
       - minio_data:/data
 
+  # Virus scanner for uploads. Opt in with: docker compose --profile scan up
+  # ClamAV's docs ask for at least 3 GiB of memory (4 preferred), and the first start downloads the
+  # signature database, which takes a few minutes. Then set CLAMAV_HOST=clamav in .env.
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: docflow-clamav
+    profiles: ["scan"]
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_db:/var/lib/clamav
+
 volumes:
   postgres_data:
   minio_data:
+  clamav_db:

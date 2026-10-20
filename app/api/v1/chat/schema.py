@@ -121,3 +121,19 @@ class ChatStatsResponse(BaseModel):
     cached_tokens: int
     reasoning_tokens: int
     per_day: list[DailyUsage]
+
+class TranscriptionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    text: str
+    model: str
+    created_at: datetime
+
+
+class ImageAnswerResponse(BaseModel):
+    conversation_id: int
+    answer: str
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
