@@ -1,8 +1,5 @@
 FROM python:3.12-slim
 
-# Do not buffer Python's output, so print() and crash messages reach `docker logs` at once and in order.
-ENV PYTHONUNBUFFERED=1
-
 WORKDIR /app
 
 RUN apt-get update && \
