@@ -1,3 +1,11 @@
+# The app writes JSON lines to stdout and Docker collects them. By default Docker keeps them in a file
+# that is never rotated, which can fill the disk, so keep at most 3 files of 10 MB per container.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   api:
@@ -15,6 +23,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    logging: *default-logging
     volumes:
       - .:/app
 
@@ -31,6 +40,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    logging: *default-logging
     volumes:
       - .:/app
 
