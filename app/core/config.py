@@ -102,7 +102,8 @@ class Settings(BaseSettings):
     # latest messages, and at most this many characters (oldest messages are dropped first).
     CHAT_HISTORY_MESSAGES: int = Field(default=10, ge=0, le=50)
     CHAT_HISTORY_MAX_CHARS: int = Field(default=12000, gt=0)
-    # Tokens (input + output) one user may spend per UTC day, across every AI feature. 0 = no limit.
+    # Tokens (input + output) one user may spend per UTC day, across every AI feature.
+    # 0 = no limit.
     CHAT_DAILY_TOKEN_BUDGET: int = Field(default=200_000, ge=0)
     # Answers one user may have streaming at the same time (more get a 429).
     CHAT_MAX_CONCURRENT_STREAMS: int = Field(default=2, ge=1)
@@ -112,16 +113,22 @@ class Settings(BaseSettings):
     # "development" shows the values of failed SQL statements in error messages. Anything else,
     # including this default, hides them, because they hold users' messages and transcripts.
     ENVIRONMENT: str = Field(default="production")
-    # Image questions use the Gemini key and base URL above. The limit is on the raw file: base64 makes
-    # it a third bigger, and Gemini accepts 20 MB for the whole request.
+    # Image questions use the Gemini key and base URL above. The limit is on the raw file:
+    # base64 makes it a third bigger, and Gemini accepts 20 MB for the whole request.
     VISION_MODEL: str = Field(default="gemini-3.1-flash-lite")
     VISION_MAX_IMAGE_MB: int = Field(default=5, gt=0, le=14)
     VISION_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
-    # Virus scanning of uploads with ClamAV (clamd). An empty host switches it off; once a host is set,
-    # an unreachable scanner makes uploads fail (503) instead of passing unscanned.
+    # Virus scanning of uploads with ClamAV (clamd). An empty host switches it off; once a host
+    # is set, an unreachable scanner makes uploads fail (503) instead of passing unscanned.
     CLAMAV_HOST: str = ""
     CLAMAV_PORT: int = Field(default=3310, ge=1, le=65535)
     CLAMAV_TIMEOUT_SECONDS: int = Field(default=30, gt=0, le=300)
+
+    # Questions about one document, answered with citations (uses GEMINI_AI_API_KEY).
+    DOCUMENT_MODEL: str = Field(default="gemini-3.1-flash-lite")
+    DOCUMENT_QA_MAX_MB: int = Field(default=10, gt=0, le=14)
+    DOCUMENT_QA_MAX_PAGES: int = Field(default=40, gt=0)
+    DOCUMENT_QA_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
 
 
 def load_settings() -> Settings:
@@ -130,8 +137,7 @@ def load_settings() -> Settings:
         # BaseSettings reads required values from the environment at runtime.
         return Settings()  # type: ignore[call-arg]
     except ValidationError as exc:
-        fields = sorted({".".join(str(part)
-                        for part in error["loc"]) for error in exc.errors()})
+        fields = sorted({".".join(str(part) for part in error["loc"]) for error in exc.errors()})
         details = ", ".join(fields)
         raise RuntimeError(
             "Application configuration is invalid. Check the required values in .env; "
