@@ -15,6 +15,8 @@ os.environ["rate_limit_enabled"] = "false"
 os.environ["processing_email_enabled"] = "false"
 # A real DSN in .env must never make the test run report to the live Sentry project.
 os.environ["SENTRY_DSN"] = ""
+# Uploads in tests are not scanned: a CLAMAV_HOST in .env would make them fail with 503 when no scanner runs.
+os.environ["CLAMAV_HOST"] = ""
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
