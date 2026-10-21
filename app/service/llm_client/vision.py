@@ -13,15 +13,14 @@ import base64
 import logging
 import time
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError
 
 from app.core.config import settings
+from app.service.llm_client.gemini import gemini_client, token_count
 from app.service.llm_client.llm_client import (
     LLMError,
-    LLMNotConfiguredError,
     LLMRateLimitError,
     LLMTimeoutError,
     LLMUnavailableError,
@@ -43,20 +42,6 @@ class VisionResult:
     latency_ms: int
 
 
-@lru_cache(maxsize=1)
-def _client() -> AsyncOpenAI:
-    """One HTTP client for every call, so connections are reused."""
-    api_key = settings.GEMINI_AI_API_KEY.get_secret_value()
-    if not api_key:
-        raise LLMNotConfiguredError("GEMINI_AI_API_KEY is not set")
-    return AsyncOpenAI(
-        base_url=settings.GEMINI_BASE_URL,
-        api_key=api_key,
-        timeout=settings.VISION_TIMEOUT_SECONDS,
-        max_retries=0,
-    )
-
-
 async def answer_about_image(
     *, user_id: int, question: str, image: bytes, mime: str, system_prompt: str
 ) -> VisionResult:
@@ -65,7 +50,7 @@ async def answer_about_image(
     input_tokens = output_tokens = None
     try:
         data_uri = f"data:{mime};base64,{base64.b64encode(image).decode('ascii')}"
-        completion = await _client().chat.completions.create(
+        completion = await gemini_client().chat.completions.create(
             model=settings.VISION_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -81,8 +66,8 @@ async def answer_about_image(
             timeout=settings.VISION_TIMEOUT_SECONDS,
         )
         usage = getattr(completion, "usage", None)
-        input_tokens = _count(getattr(usage, "prompt_tokens", None))
-        output_tokens = _count(getattr(usage, "completion_tokens", None))
+        input_tokens = token_count(getattr(usage, "prompt_tokens", None))
+        output_tokens = token_count(getattr(usage, "completion_tokens", None))
         text = _answer_text(completion)
         if not text:
             raise LLMError("The provider returned no answer")
@@ -124,15 +109,10 @@ async def answer_about_image(
         model=getattr(completion, "model", None) or settings.VISION_MODEL,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
-        cached_tokens=_count(getattr(prompt_details, "cached_tokens", None)),
-        reasoning_tokens=_count(getattr(completion_details, "reasoning_tokens", None)),
+        cached_tokens=token_count(getattr(prompt_details, "cached_tokens", None)),
+        reasoning_tokens=token_count(getattr(completion_details, "reasoning_tokens", None)),
         latency_ms=int((time.monotonic() - started) * 1000),
     )
-
-
-def _count(value: Any) -> int | None:
-    """A token count, or None when the provider did not send a real number."""
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _answer_text(completion: Any) -> str:
