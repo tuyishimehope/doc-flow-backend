@@ -17,13 +17,14 @@ from app.core.docs import register_docs
 from app.db.engine import engine
 from app.core.minio import minio_client
 from app.core.config import settings
-from app.core.logging_config import configure_logging
+from app.core.logging_config import configure_logging, queue_logs_enabled
 from app.core.observability import init_sentry
+from app.core.request_log import RequestLogMiddleware
 from app.core.wait_for_dependencies import check_database, check_minio, check_redis, wait_for_dependencies
 
 
 logger = logging.getLogger(__name__)
-configure_logging()
+configure_logging(use_queue=queue_logs_enabled())  # the Celery import above set a plain setup first
 init_sentry()  # before the app is created, so the app is instrumented
 
 
@@ -66,6 +67,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added after CORS, so it is the outermost layer and sees every request, preflights included.
+app.add_middleware(RequestLogMiddleware)
 app.mount(
     "/static",
     StaticFiles(
