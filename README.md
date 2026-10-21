@@ -489,6 +489,19 @@ When processing finishes or finally fails, the document owner gets an email. Set
 
 ## Development
 
+### Code style
+
+The code follows [PEP 8](https://peps.python.org/pep-0008/), checked and formatted by [Ruff](https://docs.astral.sh/ruff/) (pinned in `requirements-dev.txt`, configured in `pyproject.toml`):
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .             # find problems; add --fix to apply the safe fixes
+ruff format .            # format the code
+ruff format --check .    # what a CI step would run: fails if anything would change
+```
+
+Lines are at most 99 characters (PEP 8 allows 99 when a team agrees on it). The rules are pycodestyle (PEP 8 itself), pyflakes (unused imports and variables), import order and pep8-naming. Alembic's `migrations/` are left out because they are generated. The class names in `app/models/schema.py` and `app/service/document/schema.py` (for example `Processing_Request`) break the CapWords rule on purpose: Postgres names its enum types after them, so renaming needs a migration.
+
 ### Database migrations
 
 ```bash
