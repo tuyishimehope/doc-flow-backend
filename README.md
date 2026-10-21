@@ -272,8 +272,6 @@ docker compose logs -f api worker          # follow both
 docker compose logs api | jq 'select(.request_id == "<id>")'   # one request from start to end
 ```
 
-`docker-compose.yml` keeps at most 3 files of 10 MB per container (`max-size`, `max-file`). Without that Docker never rotates its log file and it can fill the disk.
-
 | Setting | Default | Meaning |
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |

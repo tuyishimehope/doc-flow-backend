@@ -1,7 +1,8 @@
 """Where the logs go and what they look like.
 
 * Every record is one JSON line on **stdout**. In Docker nothing else is needed: the container
-  runtime collects stdout (``docker compose logs``), rotates it, and ships it wherever you point it.
+  runtime collects stdout (``docker compose logs``). Where it is kept and for how long is decided
+  by the platform, not by the app.
 * The API writes through a **queue**. ``logger.info(...)`` only puts the record in an in-memory
   queue and returns; a background thread formats and writes it. A slow or stuck stdout (a full
   pipe, a slow log collector) then cannot freeze the event loop. If the queue is full the newest
