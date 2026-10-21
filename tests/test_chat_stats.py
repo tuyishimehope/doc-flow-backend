@@ -35,7 +35,8 @@ def test_the_window_is_whole_days_in_utc_ending_today():
     noon = datetime(2026, 10, 19, 12, 30, tzinfo=timezone.utc)
     assert window_start(1, noon) == datetime(2026, 10, 19, tzinfo=timezone.utc)
     assert window_start(7, noon) == datetime(2026, 10, 13, tzinfo=timezone.utc)
-    # A time given in another zone is converted first: 01:00 on the 20th in UTC+3 is still the 19th.
+    # A time given in another zone is converted first: 01:00 on the 20th in UTC+3 is still the
+    # 19th.
     plus3 = timezone(timedelta(hours=3))
     assert window_start(1, datetime(2026, 10, 20, 1, 0, tzinfo=plus3)) == datetime(
         2026, 10, 19, tzinfo=timezone.utc

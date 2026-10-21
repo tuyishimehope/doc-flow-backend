@@ -1,16 +1,21 @@
-"""Virus scan of uploaded bytes with ClamAV's ``clamd`` daemon. One place for every feature that takes a file.
+"""Virus scan of uploaded bytes with ClamAV's ``clamd`` daemon.
 
-Scanning is on when ``CLAMAV_HOST`` is set and off when it is empty (the same convention as ``SENTRY_DSN``
-and the provider API keys). Once it is on it fails closed: if the scanner cannot be reached, or answers
-with anything but a clean verdict, the upload is refused with a 503 instead of being let through.
+One place for every feature that takes a file.
 
-Call ``scan_upload(content)`` after the cheap checks of ``app/utils/upload.py`` and *before* anything parses
-the file (an image decoder, a PDF reader), because parsers are what a hostile file attacks.
+Scanning is on when ``CLAMAV_HOST`` is set and off when it is empty (the same convention as
+``SENTRY_DSN`` and the provider API keys). Once it is on it fails closed: if the scanner cannot
+be reached, or answers with anything but a clean verdict, the upload is refused with a 503
+instead of being let through.
 
-The wire protocol is clamd's ``INSTREAM`` command (docs.clamav.net, "ClamD protocol"): send ``zINSTREAM\\0``,
-then chunks of a 4-byte big-endian length plus data, then a zero length. The reply is ``stream: OK`` or
-``stream: <signature> FOUND``, ended by a NUL byte. The file must stay under ``StreamMaxLength`` in
-``clamd.conf``; keep the upload limits below it. Nothing here logs file content or file names.
+Call ``scan_upload(content)`` after the cheap checks of ``app/utils/upload.py`` and *before*
+anything parses the file (an image decoder, a PDF reader), because parsers are what a hostile
+file attacks.
+
+The wire protocol is clamd's ``INSTREAM`` command (docs.clamav.net, "ClamD protocol"): send
+``zINSTREAM\\0``, then chunks of a 4-byte big-endian length plus data, then a zero length. The
+reply is ``stream: OK`` or ``stream: <signature> FOUND``, ended by a NUL byte. The file must
+stay under ``StreamMaxLength`` in ``clamd.conf``; keep the upload limits below it. Nothing here
+logs file content or file names.
 """
 
 import asyncio
@@ -19,7 +24,7 @@ import struct
 import time
 
 from app.core.config import settings
-from app.utils.upload import UploadRejected
+from app.utils.upload import UploadRejectedError
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,10 @@ _warned_off = False
 
 
 async def scan_upload(content: bytes) -> None:
-    """Return normally for a clean file. Raise ``UploadRejected`` for a virus (422) or a scanner problem (503)."""
+    """Return normally for a clean file.
+
+    Raise ``UploadRejectedError`` for a virus (422) or a scanner problem (503).
+    """
     host = settings.CLAMAV_HOST.strip()
     if not host:
         _warn_scanning_is_off_once()
@@ -43,7 +51,7 @@ async def scan_upload(content: bytes) -> None:
         )
     except (OSError, EOFError, asyncio.TimeoutError, asyncio.LimitOverrunError):
         _log(logging.ERROR, "Virus scanner unreachable", "unavailable", started, exc_info=True)
-        raise UploadRejected(
+        raise UploadRejectedError(
             503, "File scanning is unavailable right now. Please try again shortly."
         ) from None
 
@@ -59,14 +67,16 @@ async def scan_upload(content: bytes) -> None:
             "infected",
             started,
         )
-        raise UploadRejected(422, "The file was rejected by the virus scan.")
+        raise UploadRejectedError(422, "The file was rejected by the virus scan.")
     _log(
         logging.ERROR,
         f"Virus scanner gave an unexpected answer: {verdict[:100]}",
         "unavailable",
         started,
     )
-    raise UploadRejected(503, "File scanning is unavailable right now. Please try again shortly.")
+    raise UploadRejectedError(
+        503, "File scanning is unavailable right now. Please try again shortly."
+    )
 
 
 async def _instream(host: str, port: int, content: bytes) -> bytes:

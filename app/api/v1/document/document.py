@@ -29,7 +29,7 @@ from app.service.document.schema import (
 )
 from app.utils.document import valid_type_document, validate_document_content
 from app.utils.scan import scan_upload
-from app.utils.upload import UploadRejected
+from app.utils.upload import UploadRejectedError
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -56,7 +56,7 @@ async def post_document_endpoint(
         )
     try:
         await scan_upload(content)  # before any parser touches the file
-    except UploadRejected as exc:
+    except UploadRejectedError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     if not validate_document_content(file, content):
         raise HTTPException(

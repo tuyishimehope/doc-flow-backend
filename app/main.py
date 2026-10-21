@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     await wait_for_dependencies()
     logger.info("Checking DB connection")
 
-    async with engine.connect() as conn:
+    async with engine.connect():
         logger.info("Database connected")
 
     bucket_name = settings.MINIO_BUCKET

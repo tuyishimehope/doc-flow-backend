@@ -20,7 +20,7 @@ async def test_signup(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_login(client: AsyncClient):
-    signup_response = await client.post(
+    await client.post(
         f"{api}/signup",
         json={
             "first_name": "test",
@@ -43,7 +43,7 @@ async def test_get_current_user(client: AsyncClient, auth_headers: dict[str, str
 
 @pytest.mark.anyio
 async def test_signup_failed(client: AsyncClient):
-    first_response = await client.post(
+    await client.post(
         f"{api}/signup",
         json={
             "first_name": "test",

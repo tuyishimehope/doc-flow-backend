@@ -17,7 +17,7 @@ from scripts.run_evals import (
     save_run,
 )
 
-# ---- checks ------------------------------------------------------------------------------------
+# ---- checks -------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,7 @@ def test_missing_or_empty_case_files_are_a_clear_error(tmp_path):
         load_cases(empty)
 
 
-# ---- talking to a fake API -----------------------------------------------------------------------
+# ---- talking to a fake API ----------------------------------------------------------------------
 
 CASES = {
     "version": 1,
@@ -157,7 +157,7 @@ def test_a_pause_is_kept_between_questions_but_not_before_the_first():
     assert waits == [3]
 
 
-# ---- saving and comparing ----------------------------------------------------------------------------
+# ---- saving and comparing -----------------------------------------------------------------------
 
 
 def make_run(passes: dict[str, bool], **extra) -> dict:
@@ -198,7 +198,7 @@ def test_compare_says_so_when_nothing_changed():
     assert "no case changed" in compare_runs(same, same)
 
 
-# ---- the command line ----------------------------------------------------------------------------------
+# ---- the command line ---------------------------------------------------------------------------
 
 
 @pytest.fixture

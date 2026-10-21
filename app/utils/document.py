@@ -16,14 +16,16 @@ def get_file_extension(file: UploadFile) -> str:
     return Path(file.filename).suffix.lstrip(".")
 
 
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/png",
+    "image/tiff",
+}
+
+
 def valid_type_document(file: UploadFile) -> bool:
-    ALLOWED_CONTENT_TYPES = {
-        "application/pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "image/jpeg",
-        "image/png",
-        "image/tiff",
-    }
     return file.content_type in ALLOWED_CONTENT_TYPES
 
 

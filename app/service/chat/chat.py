@@ -118,9 +118,10 @@ async def answer_image_question(
 ) -> ImageAnswer:
     """Ask the vision model, then keep the question and the answer in a new conversation.
 
-    The image itself is not kept: only its size, type, size in pixels and SHA-256 are written to the
-    question's ``meta``. Saving the answer as a normal assistant message means the daily token budget
-    and ``/chat/stats`` count it like any other answer. If the provider fails, nothing is saved.
+    The image itself is not kept: only its size, type, size in pixels and SHA-256 are written to
+    the question's ``meta``. Saving the answer as a normal assistant message means the daily
+    token budget and ``/chat/stats`` count it like any other answer. If the provider fails,
+    nothing is saved.
     """
     result = await answer_about_image(
         user_id=user_id,

@@ -30,7 +30,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
-# Letters, digits and . _ - only, 8 to 64 characters. Anything else could be used to forge log lines.
+# Letters, digits and . _ - only, 8 to 64 characters. Anything else could be used to forge log
+# lines.
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 QUIET_PATHS = {"/health"}
 

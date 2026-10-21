@@ -175,7 +175,8 @@ async def process_document(self, processing_request_id: int):
 
         if len(extracted_content) > settings.OPENAI_MAX_INPUT_CHARS:
             raise ValueError(
-                f"Extracted text exceeds the configured {settings.OPENAI_MAX_INPUT_CHARS} character limit"
+                "Extracted text exceeds the configured "
+                f"{settings.OPENAI_MAX_INPUT_CHARS} character limit"
             )
 
         service = OpenaiService()

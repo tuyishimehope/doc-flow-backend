@@ -183,8 +183,14 @@ def compare_runs(old: dict[str, Any], new: dict[str, Any]) -> str:
     added = sorted(set(after) - set(before))
     removed = sorted(set(before) - set(after))
     lines = [
-        f"score: {old['score']:.0%} ({old['passed']}/{old['total']}) -> {new['score']:.0%} ({new['passed']}/{new['total']})",
-        f"prompt: {old.get('prompt')} -> {new.get('prompt')}   model: {old.get('model_choice')} -> {new.get('model_choice')}",
+        (
+            f"score: {old['score']:.0%} ({old['passed']}/{old['total']}) "
+            f"-> {new['score']:.0%} ({new['passed']}/{new['total']})"
+        ),
+        (
+            f"prompt: {old.get('prompt')} -> {new.get('prompt')}   "
+            f"model: {old.get('model_choice')} -> {new.get('model_choice')}"
+        ),
     ]
     for title, ids in (
         ("got worse", regressed),
@@ -256,7 +262,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             if not token:
                 raise EvalError(
-                    "Give --token, or --email and --password (or EVALS_TOKEN / EVALS_EMAIL / EVALS_PASSWORD)."
+                    "Give --token, or --email and --password "
+                    "(or EVALS_TOKEN / EVALS_EMAIL / EVALS_PASSWORD)."
                 )
             client.headers["Authorization"] = f"Bearer {token}"
             run = run_cases(
@@ -265,7 +272,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.model,
                 pause=args.pause,
                 on_result=lambda r: print(
-                    f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<16} {'; '.join(r['failures'])}"
+                    f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<16} "
+                    f"{'; '.join(r['failures'])}"
                 ),
             )
     except (EvalError, OSError, json.JSONDecodeError, httpx.HTTPError) as exc:

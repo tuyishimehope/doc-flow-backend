@@ -29,7 +29,7 @@ from app.db.dependencies import get_db_session
 from app.db.session import SessionLocal
 from app.models.schema import Conversation
 from app.service.auth.auth import CurrentUser
-from app.service.chat.budget import DailyBudgetExceeded, check_daily_budget
+from app.service.chat.budget import DailyBudgetExceededError, check_daily_budget
 from app.service.chat.chat import (
     CHAT_PROMPT,
     answer_image_question,
@@ -72,7 +72,7 @@ from app.service.llm_client.transcriber import ALLOWED_AUDIO_EXTENSIONS
 from app.utils.chat_utils import convert_mb_to_bytes
 from app.utils.image import clean_image, image_policy
 from app.utils.scan import scan_upload
-from app.utils.upload import UploadRejected, read_checked_upload
+from app.utils.upload import UploadRejectedError, read_checked_upload
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ async def _token_budget(current_user: CurrentUser, db_session: AsyncSession) -> 
     """429 when the user has used up today's tokens. Runs before any model call."""
     try:
         await check_daily_budget(current_user.id, db_session)
-    except DailyBudgetExceeded as exc:
+    except DailyBudgetExceededError as exc:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail=(
@@ -447,7 +447,9 @@ def _validate_audio_upload(file: UploadFile) -> None:
     if file.size > convert_mb_to_bytes(settings.TRANSCRIBE_MAX_FILE_MB):
         raise HTTPException(
             413,
-            detail=f"The audio file is too big. The limit is {settings.TRANSCRIBE_MAX_FILE_MB} MB.",
+            detail=(
+                f"The audio file is too big. The limit is {settings.TRANSCRIBE_MAX_FILE_MB} MB."
+            ),
         )
 
 
@@ -474,7 +476,9 @@ IMAGE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "Not a jpg, jpeg, png or webp, or the content does not match the extension"
     },
     422: {
-        "description": "No file, an empty file, a file that is not a valid image, or a bad question"
+        "description": (
+            "No file, an empty file, a file that is not a valid image, or a bad question"
+        )
     },
     504: {"description": "The AI provider took longer than VISION_TIMEOUT_SECONDS"},
 }
@@ -491,7 +495,10 @@ async def answer_with_image(
     ],
     db_session: Annotated[AsyncSession, Depends(get_db_session)],
 ):
-    """One image and one question in, one answer out. The image is checked, cleaned and not kept."""
+    """One image and one question in, one answer out.
+
+    The image is checked, cleaned and not kept.
+    """
     await _rate_limit(current_user=current_user)
     await _token_budget(current_user=current_user, db_session=db_session)
     _tag_request(current_user.id, settings.VISION_MODEL)
@@ -499,7 +506,7 @@ async def answer_with_image(
         upload = await read_checked_upload(file, image_policy())
         await scan_upload(upload.content)
         image = await asyncio.to_thread(clean_image, upload.content)
-    except UploadRejected as exc:
+    except UploadRejectedError as exc:
         raise HTTPException(exc.status_code, detail=exc.detail) from None
     try:
         return await answer_image_question(

@@ -349,6 +349,13 @@ async def get_user_stats(
                 failure_reason=failure_reason,
                 failed_at=failed_at,
             )
-            for request_id, document_id, document_name, processing_type, failure_reason, failed_at in failure_rows
+            for (
+                request_id,
+                document_id,
+                document_name,
+                processing_type,
+                failure_reason,
+                failed_at,
+            ) in failure_rows
         ],
     )

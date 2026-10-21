@@ -193,7 +193,9 @@ async def forgot_password(
         )
 
     return {
-        "message": "If an account exists with this email, you will receive password reset instructions.",
+        "message": (
+            "If an account exists with this email, you will receive password reset instructions."
+        ),
     }
 
 

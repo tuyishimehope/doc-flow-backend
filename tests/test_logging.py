@@ -64,7 +64,10 @@ def stuck():
 
 
 def log_lines(count: int) -> bool:
-    """Log from another thread. False if it is still stuck after 3 seconds (so a bug fails, not hangs)."""
+    """Log from another thread.
+
+    False if it is still stuck after 3 seconds, so a bug fails instead of hanging.
+    """
     worker = threading.Thread(
         target=lambda: [logger.info("line %s", n) for n in range(count)], daemon=True
     )

@@ -66,7 +66,8 @@ def init_sentry(*, transport: Any = None) -> bool:
             # level: breadcrumbs from INFO up; event_level: ERROR logs are events.
             # sentry_logs_level: the lowest level sent to Sentry Logs. INFO by default,
             # because the Celery worker runs with --loglevel=DEBUG and celery/kombu are chatty.
-            # Whether logs are sent at all is decided by enable_logs above (works on older SDKs too).
+            # Whether logs are sent at all is decided by enable_logs above (works on older SDKs
+            # too).
             LoggingIntegration(
                 level=logging.INFO,
                 event_level=logging.ERROR,

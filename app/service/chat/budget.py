@@ -24,7 +24,7 @@ from app.service.chat.crud import get_tokens_used_since
 from app.service.chat.stats import window_start
 
 
-class DailyBudgetExceeded(Exception):
+class DailyBudgetExceededError(Exception):
     """The user has used today's tokens. Carries what the caller needs to explain it."""
 
     def __init__(self, used: int, limit: int, resets_at: datetime, retry_after: int) -> None:
@@ -52,7 +52,7 @@ async def tokens_used_today(
 async def check_daily_budget(
     user_id: int, db_session: AsyncSession, *, now: datetime | None = None
 ) -> None:
-    """Raise ``DailyBudgetExceeded`` when the user has reached the daily limit.
+    """Raise ``DailyBudgetExceededError`` when the user has reached the daily limit.
 
     A limit of 0 turns the budget off.
     """
@@ -65,4 +65,4 @@ async def check_daily_budget(
         return
     resets_at = next_reset(now)
     retry_after = max(1, math.ceil((resets_at - now).total_seconds()))
-    raise DailyBudgetExceeded(used, limit, resets_at, retry_after)
+    raise DailyBudgetExceededError(used, limit, resets_at, retry_after)

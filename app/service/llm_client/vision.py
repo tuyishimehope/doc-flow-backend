@@ -1,12 +1,12 @@
 """Questions about one image, through Gemini's OpenAI-compatible endpoint.
 
-Same rules as the transcriber: callers only see ``LLMError`` subclasses, never an SDK exception or a
-provider message, and one log line per call carries metadata only. The question, the answer, the image
-and its file name are never logged.
+Same rules as the transcriber: callers only see ``LLMError`` subclasses, never an SDK exception
+or a provider message, and one log line per call carries metadata only. The question, the
+answer, the image and its file name are never logged.
 
-This is separate from the chat clients on purpose. The chat fallback chain also holds models that cannot
-read images, and an image sent to one of them is an error, not an answer. No retries and no fallback
-provider yet: add them when the log shows a real need.
+This is separate from the chat clients on purpose. The chat fallback chain also holds models
+that cannot read images, and an image sent to one of them is an error, not an answer. No retries
+and no fallback provider yet: add them when the log shows a real need.
 """
 
 import base64

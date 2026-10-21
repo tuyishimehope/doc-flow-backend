@@ -9,7 +9,8 @@
   records are dropped and counted, because losing a log line is better than stopping requests.
 * The Celery worker does **not** use the queue (``configure_logging()`` default). Its pool forks
   child processes, and a thread started before a fork does not exist in the children, so their
-  queued records would never be written. A worker has no event loop to block, so this costs nothing.
+  queued records would never be written. A worker has no event loop to block, so this costs
+  nothing.
 * Only the fields in ``JsonLogFormatter.context_fields`` are printed from ``extra``. This is on
   purpose: it keeps user text (questions, answers, file names) out of the logs even by mistake.
 
@@ -103,7 +104,9 @@ class RequestIdFilter(logging.Filter):
 
 
 class _StdoutHandler(logging.StreamHandler):
-    """Writes to whatever ``sys.stdout`` is at that moment (the same trick as ``logging.lastResort``).
+    """Writes to whatever ``sys.stdout`` is at that moment.
+
+    This is the same trick as ``logging.lastResort`` uses.
 
     Looking it up on every write keeps it working when stdout is replaced, for example by pytest.
     """
@@ -142,8 +145,9 @@ class NonBlockingQueueHandler(QueueHandler):
 
 class _Listener(QueueListener):
     def stop(self) -> None:
-        # The standard stop() puts an "end" marker in the queue and raises queue.Full when the queue
-        # is full. The writer is still running, so it makes room soon: retry for a few seconds.
+        # The standard stop() puts an "end" marker in the queue and raises queue.Full when the
+        # queue is full. The writer is still running, so it makes room soon: retry for a few
+        # seconds.
         deadline = time.monotonic() + 5
         while True:
             try:
