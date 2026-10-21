@@ -1,0 +1,28 @@
+# Code style: PEP 8, checked and formatted by Ruff (pinned in requirements-dev.txt).
+#
+#   ruff check .            find problems (add --fix to apply the safe fixes)
+#   ruff format .           format the code
+#   ruff format --check .   what a CI step would run: fails if anything would change
+
+[tool.ruff]
+# PEP 8 says 79, and allows a team to agree on up to 99 for code. Most of this code was
+# already written at about 100 characters.
+line-length = 99
+# The Python of the Docker image.
+target-version = "py312"
+src = ["."]
+# Alembic writes these files; they are not edited by hand.
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+# E, W: pycodestyle, which is PEP 8 itself (spaces, blank lines, line length).
+# F: pyflakes (unused imports and variables, undefined names).
+# I: import order (standard library, third party, this project).
+# N: pep8-naming (CapWords classes, lowercase functions, an Error suffix on exceptions).
+select = ["E", "W", "F", "I", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+# Postgres names its enum types after these classes (document_status, processing_type, ...).
+# Renaming `Document_Status` to `DocumentStatus` changes the type name and needs a migration.
+"app/models/schema.py" = ["N801"]
+"app/service/document/schema.py" = ["N801"]
