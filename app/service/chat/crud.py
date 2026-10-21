@@ -18,7 +18,7 @@ async def create_conversation(user_id: int, title: str, db_session: AsyncSession
     conversation = Conversation(user_id=user_id, title=title)
     db_session.add(conversation)
     await db_session.flush()
-    await db_session.refresh(conversation)  # load the server-generated timestamps
+    await db_session.refresh(conversation)
     await db_session.commit()
     return conversation
 
@@ -64,7 +64,6 @@ async def delete_conversation(id: int, user_id: int, db_session: AsyncSession) -
     conversation = await get_conversation(id, user_id, db_session)
     if conversation is None:
         return False
-    # Explicit, so it does not depend on the database enforcing ON DELETE CASCADE.
     await db_session.execute(delete(Message).where(Message.conversation_id == id))
     await db_session.execute(delete(Conversation).where(Conversation.id == id))
     await db_session.commit()
