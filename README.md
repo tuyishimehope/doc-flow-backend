@@ -263,6 +263,30 @@ broker_backend=redis://redis:6379/1
 MINIO_ENDPOINT=minio:9000
 ```
 
+### Logging
+
+The API and the worker write one JSON line per log record to **stdout** and nothing else. In Docker, Docker collects that output, so there are no log files to manage inside the container:
+
+```bash
+docker compose logs -f api worker          # follow both
+docker compose logs api | jq 'select(.request_id == "<id>")'   # one request from start to end
+```
+
+`docker-compose.yml` keeps at most 3 files of 10 MB per container (`max-size`, `max-file`). Without that Docker never rotates its log file and it can fill the disk.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `LOG_QUEUE` | `true` | `false` writes directly instead of through the queue (useful when debugging a crash: the last lines then appear immediately) |
+| `LOG_QUEUE_SIZE` | `10000` | How many lines may wait. When it is full, the newest lines are dropped and counted; the count is printed to stderr at shutdown |
+
+How it works:
+- **A queue keeps logging from slowing requests down.** In the API, `logger.info(...)` only puts the line in memory; a background thread writes it. If stdout is slow or stuck (a full pipe, a slow log collector), requests keep running. The Celery worker writes directly, because its pool forks child processes and the writer thread would not exist in them.
+- **Every request has an id.** It is read from the `X-Request-ID` header if the caller sent one (8 to 64 letters, digits, `.`, `_`, `-`), otherwise it is generated, and it is returned in the `X-Request-ID` response header. Every log line written while the request is handled carries it as `request_id`.
+- **One line per request**, `"message": "Request finished"`, with `method`, `path`, `status` and `latency_ms`. `path` is the route template (`/api/v1/chat/conversations/{id}`), never the real URL, so ids and query strings are not logged. It replaces the `uvicorn.access` log, which is switched off. `/health` is logged at DEBUG while it succeeds; 5xx answers are WARNING, not ERROR, so a provider outage does not become a Sentry event.
+- **Only a fixed list of fields is printed** from `extra` (see `context_fields` in `app/core/logging_config.py`). Add a field there on purpose; questions, answers and file names are not on the list.
+- `httpx`, `httpcore` and `urllib3` are limited to WARNING, because they log every call with its URL.
+
 ### Speech to text
 
 The audio-to-text endpoint uses Groq's hosted Whisper model with the same `GROQ_AI_API_KEY` as chat:
