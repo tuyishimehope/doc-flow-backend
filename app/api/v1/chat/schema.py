@@ -132,6 +132,23 @@ class TranscriptionResponse(BaseModel):
     created_at: datetime
 
 
+class CitationResponse(BaseModel):
+    page: int  # the number the PDF viewer shows, starting at 1
+    quote: str  # a short quote that was found, word for word, on that page
+
+
+class DocumentAnswerResponse(BaseModel):
+    conversation_id: int
+    answer: str
+    found: bool  # the model says the answer is in the document
+    grounded: bool  # found, and at least one citation was checked against the page text
+    citations: list[CitationResponse]  # only citations that passed the check
+    pages: int
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
+
+
 class ImageAnswerResponse(BaseModel):
     conversation_id: int
     answer: str

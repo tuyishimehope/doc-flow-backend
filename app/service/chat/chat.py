@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schema import Transcription
 from app.prompts import load_prompt
+from app.service.chat.citations import check_answer
 from app.service.chat.crud import (
     add_message,
     create_conversation,
@@ -12,15 +13,19 @@ from app.service.chat.crud import (
     save_transcription,
 )
 from app.service.chat.schema import AUTO_TITLE_CHARS, CallUsage, MessageRole
+from app.service.llm_client.document_qa import PROVIDER as DOCUMENT_PROVIDER
+from app.service.llm_client.document_qa import Citation, answer_from_pages
 from app.service.llm_client.llm_client import LLMClient, LLMResponse, Message, StreamEvent
 from app.service.llm_client.transcriber import transcribe
 from app.service.llm_client.vision import PROVIDER as VISION_PROVIDER
 from app.service.llm_client.vision import answer_about_image
 from app.utils.image import CleanImage
+from app.utils.pdf import Page
 from app.utils.upload import CheckedUpload
 
 CHAT_PROMPT = "chat_v1"
 VISION_PROMPT = "vision_v1"
+DOCUMENT_PROMPT = "document_qa_v1"
 
 
 def build_messages(message: str, history: Sequence[Message] = ()) -> list[Message]:
@@ -165,6 +170,84 @@ async def answer_image_question(
     return ImageAnswer(
         conversation_id=conversation.id,
         answer=result.text,
+        model=result.model,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+    )
+
+
+@dataclass(frozen=True)
+class DocumentAnswer:
+    conversation_id: int
+    answer: str
+    found: bool
+    grounded: bool
+    citations: list[Citation]  # only the ones that passed the check
+    pages: int
+    model: str
+    input_tokens: int | None
+    output_tokens: int | None
+
+
+async def answer_document_question(
+    *,
+    user_id: int,
+    question: str,
+    upload: CheckedUpload,
+    pages: list[Page],
+    db_session: AsyncSession,
+) -> DocumentAnswer:
+    """Ask about the pages, check the citations, then keep the question and the answer.
+
+    The PDF and its text are not kept: only its size, page count and SHA-256 are written to the
+    question's ``meta``. The answer's ``meta`` holds the citations that passed the check, and
+    whether the answer is grounded. Saving the answer as a normal assistant message means the
+    daily token budget and ``/chat/stats`` count it like any other answer. If the provider
+    fails, nothing is saved.
+    """
+    result = await answer_from_pages(
+        user_id=user_id,
+        question=question,
+        pages=pages,
+        system_prompt=load_prompt(DOCUMENT_PROMPT),
+    )
+    checked = check_answer(result.answer, pages)
+    conversation = await create_conversation(user_id, auto_title(question), db_session)
+    await add_message(
+        conversation_id=conversation.id,
+        role=MessageRole.USER,
+        content=question,
+        meta={"document": {"bytes": upload.size, "pages": len(pages), "sha256": upload.sha256}},
+        db_session=db_session,
+    )
+    await add_message(
+        conversation_id=conversation.id,
+        role=MessageRole.ASSISTANT,
+        content=result.answer.answer,
+        model=result.model,
+        usage=CallUsage(
+            provider=DOCUMENT_PROVIDER,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            cached_tokens=result.cached_tokens,
+            reasoning_tokens=result.reasoning_tokens,
+            latency_ms=result.latency_ms,
+        ),
+        prompt_version=DOCUMENT_PROMPT,
+        meta={
+            "citations": [citation.model_dump() for citation in checked.citations],
+            "grounded": checked.grounded,
+            "found": result.answer.found,
+        },
+        db_session=db_session,
+    )
+    return DocumentAnswer(
+        conversation_id=conversation.id,
+        answer=result.answer.answer,
+        found=result.answer.found,
+        grounded=checked.grounded,
+        citations=checked.citations,
+        pages=len(pages),
         model=result.model,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,

@@ -16,6 +16,7 @@ from app.api.v1.chat.schema import (
     ChatRequest,
     ChatResponse,
     ChatStatsResponse,
+    DocumentAnswerResponse,
     ImageAnswerResponse,
     ModelsResponse,
     StreamChatRequest,
@@ -32,6 +33,7 @@ from app.service.auth.auth import CurrentUser
 from app.service.chat.budget import DailyBudgetExceededError, check_daily_budget
 from app.service.chat.chat import (
     CHAT_PROMPT,
+    answer_document_question,
     answer_image_question,
     answer_message,
     auto_title,
@@ -71,6 +73,7 @@ from app.service.llm_client.registry import (
 from app.service.llm_client.transcriber import ALLOWED_AUDIO_EXTENSIONS
 from app.utils.chat_utils import convert_mb_to_bytes
 from app.utils.image import clean_image, image_policy
+from app.utils.pdf import extract_pages, pdf_policy
 from app.utils.scan import scan_upload
 from app.utils.upload import UploadRejectedError, read_checked_upload
 
@@ -514,6 +517,66 @@ async def answer_with_image(
             question=question,
             upload=upload,
             image=image,
+            db_session=db_session,
+        )
+    except LLMError as exc:
+        raise to_http_error(exc) from None
+
+
+DOCUMENT_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **ERROR_RESPONSES,
+    413: {
+        "description": (
+            "The PDF is bigger than DOCUMENT_QA_MAX_MB, "
+            "or has more than DOCUMENT_QA_MAX_PAGES pages"
+        )
+    },
+    415: {"description": "Not a .pdf, or the content does not match the extension"},
+    422: {
+        "description": (
+            "No file, an empty file, a PDF that is encrypted, damaged or scanned (no text), "
+            "a file rejected by the virus scan, or a bad question"
+        )
+    },
+    504: {"description": "The AI provider took longer than DOCUMENT_QA_TIMEOUT_SECONDS"},
+}
+
+
+@CHAT_ROUTER.post(
+    "/document", response_model=DocumentAnswerResponse, responses=DOCUMENT_ERROR_RESPONSES
+)
+async def answer_with_document(
+    current_user: CurrentUser,
+    file: UploadFile,
+    question: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_MESSAGE_CHARS),
+        Form(),
+    ],
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    """One PDF and one question in, one answer with page citations out.
+
+    Every citation was checked against the page text; ``grounded`` is false when none passed.
+    The PDF and its text are not kept.
+    """
+    await _rate_limit(current_user=current_user)
+    await _token_budget(current_user=current_user, db_session=db_session)
+    _tag_request(current_user.id, settings.DOCUMENT_MODEL)
+    try:
+        upload = await read_checked_upload(file, pdf_policy())
+        await scan_upload(upload.content)
+        pages = await asyncio.to_thread(
+            extract_pages, upload.content, settings.DOCUMENT_QA_MAX_PAGES
+        )
+    except UploadRejectedError as exc:
+        raise HTTPException(exc.status_code, detail=exc.detail) from None
+    try:
+        return await answer_document_question(
+            user_id=current_user.id,
+            question=question,
+            upload=upload,
+            pages=pages,
             db_session=db_session,
         )
     except LLMError as exc:
