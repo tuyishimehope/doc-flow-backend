@@ -24,6 +24,7 @@ import logging
 import os
 import queue
 import sys
+import time
 from datetime import datetime, timezone
 from logging.handlers import QueueHandler, QueueListener
 from typing import TextIO
@@ -139,12 +140,18 @@ class NonBlockingQueueHandler(QueueHandler):
 
 
 class _Listener(QueueListener):
-    def enqueue_sentinel(self) -> None:
-        # The default would raise if the queue is full at shutdown. Wait for the writer to make room.
-        try:
-            self.queue.put(self._sentinel, timeout=5)
-        except queue.Full:
-            pass
+    def stop(self) -> None:
+        # The standard stop() puts an "end" marker in the queue and raises queue.Full when the queue
+        # is full. The writer is still running, so it makes room soon: retry for a few seconds.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                super().stop()
+                return
+            except queue.Full:
+                if time.monotonic() >= deadline:
+                    return  # the writer is stuck; its thread is a daemon and ends with the process
+                time.sleep(0.01)
 
 
 _writer: logging.Handler | None = None  # the handler that really writes (stdout)

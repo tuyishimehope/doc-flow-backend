@@ -80,8 +80,8 @@ def test_json_line_has_whitelisted_fields_and_the_traceback(use_queue):
     configure_logging(use_queue=use_queue, stream=out)
     logger.info("hello %s", "world", extra={"user_id": 7, "latency_ms": 12, "question": "secret text"})
     try:
-        1 / 0
-    except ZeroDivisionError:
+        raise ValueError("boom")
+    except ValueError:
         logger.exception("it failed")
     shutdown_logging()
 
@@ -90,7 +90,7 @@ def test_json_line_has_whitelisted_fields_and_the_traceback(use_queue):
     assert first["level"] == "INFO" and first["logger"] == "tests.logging"
     assert first["user_id"] == 7 and first["latency_ms"] == 12
     assert "question" not in first and "secret" not in out.getvalue()  # not on the whitelist
-    assert second["level"] == "ERROR" and "ZeroDivisionError" in second["exception"]
+    assert second["level"] == "ERROR" and "ValueError: boom" in second["exception"]
 
 
 def test_log_level_comes_from_the_environment(monkeypatch):
@@ -132,6 +132,15 @@ def test_a_full_queue_drops_records_instead_of_blocking(stuck):
     stuck.released.set()
     shutdown_logging()
     assert len(lines(stuck.text)) == 50 - dropped
+
+
+def test_shutdown_with_a_full_queue_waits_for_room(stuck):
+    configure_logging(use_queue=True, stream=stuck, max_queue_size=2)  # type: ignore[arg-type]
+    assert log_lines(10)  # the writer holds one record, the queue holds two, the rest are dropped
+    dropped = dropped_records()
+    threading.Timer(0.3, stuck.released.set).start()  # the output comes back while we shut down
+    shutdown_logging()  # the queue is full right now: this must wait for room, not raise
+    assert len(lines(stuck.text)) == 10 - dropped
 
 
 def test_configuring_twice_keeps_one_handler():
