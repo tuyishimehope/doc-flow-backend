@@ -4,6 +4,11 @@
 page numbers are lost; the processing pipeline needs it that way, so it stays as it is. This
 module keeps the page number next to its text.
 
+``pdf_policy`` plugs into ``read_checked_upload`` (``app/utils/upload.py``), the same way
+``image_policy`` does for pictures. The order for a document endpoint is: ``read_checked_upload``
+(type, size, first bytes), then ``scan_upload`` (``app/utils/scan.py``), then ``extract_pages``,
+because the PDF reader is what a hostile file attacks and must see the file last.
+
 ``extract_pages`` is plain blocking code (parsing is CPU work). Call it from an endpoint with
 ``await asyncio.to_thread(extract_pages, content, max_pages)`` so the server stays responsive.
 Problems are raised as ``UploadRejectedError`` with the HTTP status the file deserves.
@@ -14,7 +19,19 @@ from dataclasses import dataclass
 
 import pypdf
 
-from app.utils.upload import UploadRejectedError
+from app.core.config import settings
+from app.utils.chat_utils import convert_mb_to_bytes
+from app.utils.upload import FileType, UploadPolicy, UploadRejectedError
+
+# A real PDF starts with "%PDF-". The extension and the browser's content type prove nothing.
+_PDF = FileType("application/pdf", lambda b: b.startswith(b"%PDF-"))
+PDF_TYPES = {"pdf": _PDF}
+
+
+def pdf_policy() -> UploadPolicy:
+    return UploadPolicy(
+        types=PDF_TYPES, max_bytes=convert_mb_to_bytes(settings.DOCUMENT_QA_MAX_MB)
+    )
 
 
 @dataclass(frozen=True)
