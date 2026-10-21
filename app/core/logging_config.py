@@ -61,6 +61,7 @@ class JsonLogFormatter(logging.Formatter):
         "latency_ms",
         "audio_bytes",
         "image_bytes",
+        "page_count",
         "first_piece_ms",
         "fallback_to",
         "input_tokens",
