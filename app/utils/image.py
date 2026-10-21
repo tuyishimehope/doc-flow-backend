@@ -31,7 +31,9 @@ _MIME_BY_FORMAT = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp
 
 
 def image_policy() -> UploadPolicy:
-    return UploadPolicy(types=IMAGE_TYPES, max_bytes=convert_mb_to_bytes(settings.VISION_MAX_IMAGE_MB))
+    return UploadPolicy(
+        types=IMAGE_TYPES, max_bytes=convert_mb_to_bytes(settings.VISION_MAX_IMAGE_MB)
+    )
 
 
 @dataclass(frozen=True)
@@ -53,13 +55,17 @@ def clean_image(content: bytes) -> CleanImage:
                 raise UploadRejected(413, "The picture has too many pixels. Use a smaller photo.")
             image = ImageOps.exif_transpose(opened)  # decodes; a copy, so the original can close
             if image_format == "JPEG" and image.mode not in ("RGB", "L"):
-                image = image.convert("RGB")  # JPEG cannot hold transparency or CMYK from other formats
+                image = image.convert(
+                    "RGB"
+                )  # JPEG cannot hold transparency or CMYK from other formats
             out = io.BytesIO()
             if image_format == "PNG":
                 image.save(out, "PNG")
             else:
                 image.save(out, image_format, quality=90)
-            return CleanImage(out.getvalue(), _MIME_BY_FORMAT[image_format], image.width, image.height)
+            return CleanImage(
+                out.getvalue(), _MIME_BY_FORMAT[image_format], image.width, image.height
+            )
     except UploadRejected:
         raise
     except Exception:  # Pillow raises many kinds of errors for broken or hostile files

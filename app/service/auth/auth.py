@@ -1,23 +1,21 @@
 import hashlib
 import logging
 import secrets
-from datetime import timezone, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
 import jwt
-from pwdlib import PasswordHash
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from pwdlib import PasswordHash
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
-from app.db.dependencies import get_db_session
-from app.service.auth.schema import UserUpdate
 from app.core.config import settings
+from app.db.dependencies import get_db_session
 from app.models.schema import User
 from app.service.auth.crud import get_user_by_email
-
+from app.service.auth.schema import UserUpdate
 
 password_hash = PasswordHash.recommended()
 logger = logging.getLogger(__name__)
@@ -46,33 +44,49 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(
-            timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+        expire = datetime.now(timezone.utc) + timedelta(
+            minutes=settings.access_token_expire_minutes
+        )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, settings.secret_key.get_secret_value(), algorithm=settings.algorithm)
+        to_encode, settings.secret_key.get_secret_value(), algorithm=settings.algorithm
+    )
     return encoded_jwt
 
 
 def verify_access_token(token: str) -> str | None:
     try:
-        payload = jwt.decode(token, settings.secret_key.get_secret_value(), algorithms=[
-                             settings.algorithm], options={"require": ["exp", "sub"]})
+        payload = jwt.decode(
+            token,
+            settings.secret_key.get_secret_value(),
+            algorithms=[settings.algorithm],
+            options={"require": ["exp", "sub"]},
+        )
     except jwt.InvalidTokenError:
         return None
     else:
         return payload.get("sub")
 
 
-async def create_user(first_name: str, last_name: str, email: str, password: str, db_session: AsyncSession,):
+async def create_user(
+    first_name: str,
+    last_name: str,
+    email: str,
+    password: str,
+    db_session: AsyncSession,
+):
     try:
         user = await get_user_by_email(email, db_session)
         if user is not None:
             return False
 
         password_hash = hash_password(password)
-        user = User(first_name=first_name, last_name=last_name,
-                    email=email.lower(), password_hash=password_hash)
+        user = User(
+            first_name=first_name,
+            last_name=last_name,
+            email=email.lower(),
+            password_hash=password_hash,
+        )
         db_session.add(user)
         await db_session.commit()
         await db_session.refresh(user)
@@ -158,10 +172,11 @@ async def update_user(
     return user
 
 
-async def delete_user_by_id(id: int,
-                            current_user: CurrentUser,
-                            db_session: AsyncSession,
-                            ):
+async def delete_user_by_id(
+    id: int,
+    current_user: CurrentUser,
+    db_session: AsyncSession,
+):
     if id != current_user.id:
         return None
 

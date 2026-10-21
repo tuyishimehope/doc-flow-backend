@@ -14,7 +14,7 @@ class FileResponse(BaseModel):
 
 
 class PaginatedFileResponse(BaseModel):
-    files:  list[FileResponse]
+    files: list[FileResponse]
     total: int
     skip: int
     limit: int

@@ -65,7 +65,9 @@ def stuck():
 
 def log_lines(count: int) -> bool:
     """Log from another thread. False if it is still stuck after 3 seconds (so a bug fails, not hangs)."""
-    worker = threading.Thread(target=lambda: [logger.info("line %s", n) for n in range(count)], daemon=True)
+    worker = threading.Thread(
+        target=lambda: [logger.info("line %s", n) for n in range(count)], daemon=True
+    )
     worker.start()
     worker.join(timeout=3)
     return not worker.is_alive()
@@ -78,7 +80,9 @@ def log_lines(count: int) -> bool:
 def test_json_line_has_whitelisted_fields_and_the_traceback(use_queue):
     out = io.StringIO()
     configure_logging(use_queue=use_queue, stream=out)
-    logger.info("hello %s", "world", extra={"user_id": 7, "latency_ms": 12, "question": "secret text"})
+    logger.info(
+        "hello %s", "world", extra={"user_id": 7, "latency_ms": 12, "question": "secret text"}
+    )
     try:
         raise ValueError("boom")
     except ValueError:
@@ -173,7 +177,9 @@ def test_queue_can_be_switched_off(monkeypatch):
 
 def test_uvicorn_lines_use_our_handler_and_the_access_log_is_off():
     out = io.StringIO()
-    old_handler = logging.StreamHandler(io.StringIO())  # what uvicorn installs before the app loads
+    old_handler = logging.StreamHandler(
+        io.StringIO()
+    )  # what uvicorn installs before the app loads
     for name in ("uvicorn", "uvicorn.access"):
         logging.getLogger(name).handlers[:] = [old_handler]
         logging.getLogger(name).propagate = False
@@ -274,7 +280,11 @@ def test_unknown_urls_are_logged_as_unmatched(web):
     client, out = web
     assert client.get("/no/such/page/12345").status_code == 404
     (finished,) = request_lines(out)
-    assert finished["path"] == "unmatched" and finished["status"] == 404 and finished["level"] == "INFO"
+    assert (
+        finished["path"] == "unmatched"
+        and finished["status"] == 404
+        and finished["level"] == "INFO"
+    )
     assert "/no/such/page" not in out.getvalue()
 
 
@@ -282,7 +292,9 @@ def test_a_503_is_a_warning_not_an_error(web):
     client, out = web
     client.get("/down")
     (finished,) = request_lines(out)
-    assert finished["status"] == 503 and finished["level"] == "WARNING"  # an ERROR would reach Sentry
+    assert (
+        finished["status"] == 503 and finished["level"] == "WARNING"
+    )  # an ERROR would reach Sentry
 
 
 def test_health_checks_are_quiet(web):
@@ -296,7 +308,12 @@ def test_a_stream_is_logged_once_at_the_end_and_keeps_the_id(web):
     response = client.get("/stream")
     assert response.text == "abc"
     result = lines(out)
-    assert [line["message"] for line in result] == ["piece a", "piece b", "piece c", "Request finished"]
+    assert [line["message"] for line in result] == [
+        "piece a",
+        "piece b",
+        "piece c",
+        "Request finished",
+    ]
     assert {line["request_id"] for line in result} == {response.headers[REQUEST_ID_HEADER]}
 
 

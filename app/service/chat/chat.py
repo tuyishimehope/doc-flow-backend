@@ -14,7 +14,8 @@ from app.service.chat.crud import (
 from app.service.chat.schema import AUTO_TITLE_CHARS, CallUsage, MessageRole
 from app.service.llm_client.llm_client import LLMClient, LLMResponse, Message, StreamEvent
 from app.service.llm_client.transcriber import transcribe
-from app.service.llm_client.vision import PROVIDER as VISION_PROVIDER, answer_about_image
+from app.service.llm_client.vision import PROVIDER as VISION_PROVIDER
+from app.service.llm_client.vision import answer_about_image
 from app.utils.image import CleanImage
 from app.utils.upload import CheckedUpload
 
@@ -68,6 +69,7 @@ def stream_answer(
 ) -> AsyncGenerator[StreamEvent, None]:
     """Same request as ``answer_message``, but the answer arrives piece by piece."""
     return llm.stream(build_messages(message, history))
+
 
 async def transcribe_audio_file(
     *,

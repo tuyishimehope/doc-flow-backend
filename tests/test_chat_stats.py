@@ -37,7 +37,9 @@ def test_the_window_is_whole_days_in_utc_ending_today():
     assert window_start(7, noon) == datetime(2026, 10, 13, tzinfo=timezone.utc)
     # A time given in another zone is converted first: 01:00 on the 20th in UTC+3 is still the 19th.
     plus3 = timezone(timedelta(hours=3))
-    assert window_start(1, datetime(2026, 10, 20, 1, 0, tzinfo=plus3)) == datetime(2026, 10, 19, tzinfo=timezone.utc)
+    assert window_start(1, datetime(2026, 10, 20, 1, 0, tzinfo=plus3)) == datetime(
+        2026, 10, 19, tzinfo=timezone.utc
+    )
 
 
 # ---- helpers ---------------------------------------------------------------------------------
@@ -54,8 +56,17 @@ async def make_conversation(db_session, owner_id: int) -> Conversation:
     return row
 
 
-def answer(conversation, when: datetime, *, status="complete", role="assistant", **usage) -> Message:
-    return Message(conversation_id=conversation.id, role=role, content="x", status=status, created_at=when, **usage)
+def answer(
+    conversation, when: datetime, *, status="complete", role="assistant", **usage
+) -> Message:
+    return Message(
+        conversation_id=conversation.id,
+        role=role,
+        content="x",
+        status=status,
+        created_at=when,
+        **usage,
+    )
 
 
 def hours_ago(hours: float) -> datetime:
@@ -90,9 +101,21 @@ async def test_no_answers_gives_zeros_for_every_day_of_the_window(client, auth_h
 async def test_tokens_are_summed_per_day_and_in_total(client, auth_headers, db_session, mine):
     db_session.add_all(
         [
-            answer(mine, hours_ago(1), input_tokens=10, output_tokens=4, cached_tokens=6, reasoning_tokens=1, latency_ms=100),
-            answer(mine, hours_ago(1.5), input_tokens=5, output_tokens=2, latency_ms=300),  # no cached/reasoning
-            answer(mine, hours_ago(1), input_tokens=None, output_tokens=None, latency_ms=200),  # provider sent no usage
+            answer(
+                mine,
+                hours_ago(1),
+                input_tokens=10,
+                output_tokens=4,
+                cached_tokens=6,
+                reasoning_tokens=1,
+                latency_ms=100,
+            ),
+            answer(
+                mine, hours_ago(1.5), input_tokens=5, output_tokens=2, latency_ms=300
+            ),  # no cached/reasoning
+            answer(
+                mine, hours_ago(1), input_tokens=None, output_tokens=None, latency_ms=200
+            ),  # provider sent no usage
             answer(mine, hours_ago(24 * 2), input_tokens=100, output_tokens=50, latency_ms=900),
         ]
     )
@@ -103,7 +126,9 @@ async def test_tokens_are_summed_per_day_and_in_total(client, auth_headers, db_s
     assert (body["answers"], body["complete"]) == (4, 4)
     assert (body["input_tokens"], body["output_tokens"]) == (115, 56)
     assert (body["cached_tokens"], body["reasoning_tokens"]) == (6, 1)
-    expected: dict[str, list[int]] = {}  # day -> [answers, input tokens], worked out from the timestamps
+    expected: dict[
+        str, list[int]
+    ] = {}  # day -> [answers, input tokens], worked out from the timestamps
     for hours, tokens in [(1, 10), (1.5, 5), (1, 0), (48, 100)]:
         day = hours_ago(hours).date().isoformat()
         counts = expected.setdefault(day, [0, 0])
@@ -116,7 +141,9 @@ async def test_tokens_are_summed_per_day_and_in_total(client, auth_headers, db_s
 
 
 @pytest.mark.anyio
-async def test_latency_percentiles_use_finished_answers_only(client, auth_headers, db_session, mine):
+async def test_latency_percentiles_use_finished_answers_only(
+    client, auth_headers, db_session, mine
+):
     latencies = list(range(100, 2100, 100))  # 100, 200 ... 2000 ms: twenty answers
     db_session.add_all([answer(mine, hours_ago(1), latency_ms=ms) for ms in latencies])
     db_session.add(answer(mine, hours_ago(1), status="error", latency_ms=99999))  # must not count
@@ -129,7 +156,9 @@ async def test_latency_percentiles_use_finished_answers_only(client, auth_header
 
 
 @pytest.mark.anyio
-async def test_error_rate_counts_errors_but_not_answers_the_user_cut_off(client, auth_headers, db_session, mine):
+async def test_error_rate_counts_errors_but_not_answers_the_user_cut_off(
+    client, auth_headers, db_session, mine
+):
     db_session.add_all(
         [answer(mine, hours_ago(1)) for _ in range(6)]
         + [answer(mine, hours_ago(1), status="error") for _ in range(2)]
@@ -144,7 +173,9 @@ async def test_error_rate_counts_errors_but_not_answers_the_user_cut_off(client,
 
 
 @pytest.mark.anyio
-async def test_only_the_users_assistant_answers_inside_the_window_count(client, auth_headers, db_session, mine):
+async def test_only_the_users_assistant_answers_inside_the_window_count(
+    client, auth_headers, db_session, mine
+):
     stranger = await create_test_user(client, email="other@example.com")
     stranger_headers = auth_header(await login_user(client, email="other@example.com"))
     theirs = await make_conversation(db_session, await user_id(client, stranger_headers))

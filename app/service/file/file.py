@@ -1,18 +1,17 @@
+import datetime
 import logging
 
 from fastapi import UploadFile
-from starlette.concurrency import run_in_threadpool
-import datetime
-
-from app.core.minio import minio_client
-from app.service.auth.auth import CurrentUser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
-from app.service.file.crud import get_file_id, get_all_files_by_user
 from app.core.config import settings
+from app.core.minio import minio_client
 from app.models.schema import Document
+from app.service.auth.auth import CurrentUser
 from app.service.document.schema import Document_Status
+from app.service.file.crud import get_all_files_by_user, get_file_id
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,6 @@ BUCKET_NAME = settings.MINIO_BUCKET
 
 
 async def post_file(file: UploadFile, file_id: str):
-
     file.file.seek(0, 2)
     size = file.file.tell()
     file.file.seek(0)
@@ -35,9 +33,7 @@ async def post_file(file: UploadFile, file_id: str):
         content_type=file.content_type or "",
     )
 
-    return {
-        "file_id": file_id
-    }
+    return {"file_id": file_id}
 
 
 def get_file(file_id: int):
@@ -49,7 +45,6 @@ def delete_file(file_id: int):
 
 
 async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSession):
-
     file_record = await get_file_id(id=id, current_user=current_user, db_session=db_session)
 
     if not file_record:
@@ -67,7 +62,7 @@ async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSe
     return {
         "name": file_record.name,
         "content": stream_content(),
-        "content_type": file_record.content_type
+        "content_type": file_record.content_type,
     }
 
 
@@ -111,10 +106,17 @@ async def delete_file_by_id(id: int, current_user: CurrentUser, db_session: Asyn
         )
     logger.info(
         "File and parent document soft-deleted",
-        extra={"file_id": id, "document_id": document.id if document else None, "user_id": current_user.id},
+        extra={
+            "file_id": id,
+            "document_id": document.id if document else None,
+            "user_id": current_user.id,
+        },
     )
     return id
-    
+
+
 async def get_all_files(limit: int, skip: int, user_id: int, db_session: AsyncSession):
-    result = await get_all_files_by_user(limit=limit, skip=skip, user_id=user_id, db_session=db_session)
+    result = await get_all_files_by_user(
+        limit=limit, skip=skip, user_id=user_id, db_session=db_session
+    )
     return result

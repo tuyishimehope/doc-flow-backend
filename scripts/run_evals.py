@@ -82,7 +82,11 @@ def login(client: httpx.Client, email: str, password: str) -> str:
 
 
 def ask(
-    client: httpx.Client, message: str, model: str | None, *, sleep: Callable[[float], None] = time.sleep
+    client: httpx.Client,
+    message: str,
+    model: str | None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     """One question. Waits and retries when the per-user rate limit (429) is hit."""
     body: dict[str, Any] = {"message": message}
@@ -94,23 +98,38 @@ def ask(
             break
         sleep(float(response.headers.get("Retry-After", "5")))
     if response.status_code != 200:
-        detail = response.json().get("detail") if response.headers.get("content-type", "").startswith("application/json") else None
+        detail = (
+            response.json().get("detail")
+            if response.headers.get("content-type", "").startswith("application/json")
+            else None
+        )
         raise EvalError(f"HTTP {response.status_code}: {detail or response.text[:200]}")
     return response.json()
 
 
 def run_case(
-    client: httpx.Client, case: dict[str, Any], model: str | None, *, sleep: Callable[[float], None] = time.sleep
+    client: httpx.Client,
+    case: dict[str, Any],
+    model: str | None,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     started = time.monotonic()
-    result: dict[str, Any] = {"id": case["id"], "category": case.get("category", ""), "answer": None, "model": None}
+    result: dict[str, Any] = {
+        "id": case["id"],
+        "category": case.get("category", ""),
+        "answer": None,
+        "model": None,
+    }
     try:
         reply = ask(client, case["message"], model, sleep=sleep)
         result.update(answer=reply["answer"], model=reply.get("model"))
         failures = check_answer(reply["answer"], case.get("checks", {}))
     except (EvalError, httpx.HTTPError) as exc:
         failures = [f"request failed: {exc}"]
-    result.update(passed=not failures, failures=failures, seconds=round(time.monotonic() - started, 2))
+    result.update(
+        passed=not failures, failures=failures, seconds=round(time.monotonic() - started, 2)
+    )
     return result
 
 
@@ -167,7 +186,12 @@ def compare_runs(old: dict[str, Any], new: dict[str, Any]) -> str:
         f"score: {old['score']:.0%} ({old['passed']}/{old['total']}) -> {new['score']:.0%} ({new['passed']}/{new['total']})",
         f"prompt: {old.get('prompt')} -> {new.get('prompt')}   model: {old.get('model_choice')} -> {new.get('model_choice')}",
     ]
-    for title, ids in (("got worse", regressed), ("got better", fixed), ("new cases", added), ("removed cases", removed)):
+    for title, ids in (
+        ("got worse", regressed),
+        ("got better", fixed),
+        ("new cases", added),
+        ("removed cases", removed),
+    ):
         if ids:
             lines.append(f"{title}: {', '.join(ids)}")
     if not (regressed or fixed or added or removed):
@@ -181,16 +205,40 @@ def compare_runs(old: dict[str, Any], new: dict[str, Any]) -> str:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the chat evals against a running API.")
     parser.add_argument("--base-url", default=os.getenv("EVALS_BASE_URL", "http://localhost:8000"))
-    parser.add_argument("--token", default=os.getenv("EVALS_TOKEN"), help="a bearer token (or EVALS_TOKEN)")
-    parser.add_argument("--email", default=os.getenv("EVALS_EMAIL"), help="log in with this e-mail (or EVALS_EMAIL)")
-    parser.add_argument("--password", default=os.getenv("EVALS_PASSWORD"), help="its password (or EVALS_PASSWORD)")
-    parser.add_argument("--model", help="auto, openrouter, gemini, groq or openai (default: automatic)")
+    parser.add_argument(
+        "--token", default=os.getenv("EVALS_TOKEN"), help="a bearer token (or EVALS_TOKEN)"
+    )
+    parser.add_argument(
+        "--email",
+        default=os.getenv("EVALS_EMAIL"),
+        help="log in with this e-mail (or EVALS_EMAIL)",
+    )
+    parser.add_argument(
+        "--password", default=os.getenv("EVALS_PASSWORD"), help="its password (or EVALS_PASSWORD)"
+    )
+    parser.add_argument(
+        "--model", help="auto, openrouter, gemini, groq or openai (default: automatic)"
+    )
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="where scored runs are saved")
-    parser.add_argument("--min-score", type=float, default=0.0, help="exit with 1 below this score (0 to 1)")
-    parser.add_argument("--pause", type=float, default=0.0, help="seconds to wait between questions")
-    parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait for one answer")
-    parser.add_argument("--compare", nargs=2, type=Path, metavar=("OLD", "NEW"), help="compare two saved runs and exit")
+    parser.add_argument(
+        "--out", type=Path, default=DEFAULT_OUT, help="where scored runs are saved"
+    )
+    parser.add_argument(
+        "--min-score", type=float, default=0.0, help="exit with 1 below this score (0 to 1)"
+    )
+    parser.add_argument(
+        "--pause", type=float, default=0.0, help="seconds to wait between questions"
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=120.0, help="seconds to wait for one answer"
+    )
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        type=Path,
+        metavar=("OLD", "NEW"),
+        help="compare two saved runs and exit",
+    )
     return parser.parse_args(argv)
 
 
@@ -203,16 +251,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         data = load_cases(args.cases)
         with httpx.Client(base_url=args.base_url, timeout=args.timeout) as client:
-            token = args.token or (login(client, args.email, args.password) if args.email and args.password else None)
+            token = args.token or (
+                login(client, args.email, args.password) if args.email and args.password else None
+            )
             if not token:
-                raise EvalError("Give --token, or --email and --password (or EVALS_TOKEN / EVALS_EMAIL / EVALS_PASSWORD).")
+                raise EvalError(
+                    "Give --token, or --email and --password (or EVALS_TOKEN / EVALS_EMAIL / EVALS_PASSWORD)."
+                )
             client.headers["Authorization"] = f"Bearer {token}"
             run = run_cases(
                 client,
                 data,
                 args.model,
                 pause=args.pause,
-                on_result=lambda r: print(f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<16} {'; '.join(r['failures'])}"),
+                on_result=lambda r: print(
+                    f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:<16} {'; '.join(r['failures'])}"
+                ),
             )
     except (EvalError, OSError, json.JSONDecodeError, httpx.HTTPError) as exc:
         print(f"error: {exc}", file=sys.stderr)

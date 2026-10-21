@@ -60,7 +60,12 @@ def test_providers_without_a_key_are_left_out(keys):
 
 
 def test_a_chosen_provider_goes_first_and_the_others_still_follow(keys):
-    assert order("groq", ALL, keys) == ["groq", "openrouter", "gemini", "openai"]  # openai stays last
+    assert order("groq", ALL, keys) == [
+        "groq",
+        "openrouter",
+        "gemini",
+        "openai",
+    ]  # openai stays last
 
 
 def test_choosing_openai_explicitly_puts_it_first(keys):

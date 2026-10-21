@@ -1,10 +1,9 @@
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, patch
-
-from tests.conftest import auth_header, create_test_user, login_user
 
 api = "api/v1/documents"
 
@@ -15,7 +14,6 @@ async def test_post_document(client: AsyncClient, auth_headers: dict[str, str], 
     pdf_bytes = test_doc_path.read_bytes()
 
     with patch("app.service.document.document.start_processing.delay") as mock_task:
-
         response = await client.post(
             api,
             files={
@@ -67,10 +65,7 @@ async def test_delete_document_by_id(
     test_doc_path = Path(__file__).parent / "assets/sample-pdf-invoice.pdf"
     pdf_bytes = test_doc_path.read_bytes()
 
-    with patch(
-        "app.service.document.document.start_processing.delay"
-    ) as mock_task:
-
+    with patch("app.service.document.document.start_processing.delay") as mock_task:
         doc_response = await client.post(
             api,
             files={
@@ -104,6 +99,7 @@ async def test_delete_document_by_id(
     data = response.json()
     assert data["id"] == document_id
 
+
 @pytest.mark.anyio
 async def test_get_document_by_id(
     client: AsyncClient,
@@ -113,10 +109,7 @@ async def test_get_document_by_id(
     test_doc_path = Path(__file__).parent / "assets/sample-pdf-invoice.pdf"
     pdf_bytes = test_doc_path.read_bytes()
 
-    with patch(
-        "app.service.document.document.start_processing.delay"
-    ) as mock_task:
-
+    with patch("app.service.document.document.start_processing.delay") as mock_task:
         doc_response = await client.post(
             api,
             files={

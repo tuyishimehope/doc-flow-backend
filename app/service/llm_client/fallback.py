@@ -47,7 +47,9 @@ class FallbackLLMClient:
             if last_error is not None and remaining <= 0:
                 break
             try:
-                return await asyncio.wait_for(client.complete(messages), timeout=max(remaining, 0.01))
+                return await asyncio.wait_for(
+                    client.complete(messages), timeout=max(remaining, 0.01)
+                )
             except asyncio.TimeoutError:
                 last_error = LLMTimeoutError("The fallback chain ran out of time")
             except LLMError as exc:
@@ -98,7 +100,9 @@ class FallbackLLMClient:
         # logged as an error, which Sentry turns into an event.
         logger.log(
             logging.WARNING if following else logging.ERROR,
-            "LLM provider failed, trying the next one" if following else "LLM provider failed, no providers left",
+            "LLM provider failed, trying the next one"
+            if following
+            else "LLM provider failed, no providers left",
             extra={
                 "provider": _name(client),
                 "status": error.status if error else "error",

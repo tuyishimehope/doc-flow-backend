@@ -34,7 +34,9 @@ USAGE_CHUNK = SimpleNamespace(
 class FakeStream:
     """Behaves like ``openai.AsyncStream``: an async iterator and an async context manager."""
 
-    def __init__(self, chunks, *, error: Exception | None = None, delay: float = 0, hang: bool = False):
+    def __init__(
+        self, chunks, *, error: Exception | None = None, delay: float = 0, hang: bool = False
+    ):
         self.chunks = list(chunks)
         self.error = error
         self.delay = delay
@@ -71,7 +73,11 @@ async def collect(client) -> list:
 
 @pytest.mark.anyio
 async def test_yields_pieces_then_a_done_event_and_asks_for_a_stream():
-    fake = FakeOpenAI(FakeStream([piece(None), piece("\n\n"), piece(" "), piece("Par"), piece("is."), USAGE_CHUNK]))
+    fake = FakeOpenAI(
+        FakeStream(
+            [piece(None), piece("\n\n"), piece(" "), piece("Par"), piece("is."), USAGE_CHUNK]
+        )
+    )
     events = await collect(make_client(fake))
 
     assert events[:2] == [StreamDelta("Par"), StreamDelta("is.")]  # blank lead-in dropped
@@ -105,7 +111,9 @@ async def test_an_error_event_inside_an_open_stream_is_retried_if_nothing_was_se
 
 @pytest.mark.anyio
 async def test_never_retries_after_text_was_sent():
-    fake = FakeOpenAI(FakeStream([piece("Par")], error=APIConnectionError(request=REQUEST)), good_stream())
+    fake = FakeOpenAI(
+        FakeStream([piece("Par")], error=APIConnectionError(request=REQUEST)), good_stream()
+    )
     seen = []
     with pytest.raises(LLMUnavailableError):
         async for event in make_client(fake).stream(MESSAGES):
@@ -179,7 +187,9 @@ async def test_cancelling_the_listener_closes_the_provider_stream(caplog):
         await task
 
     assert provider_stream.closed
-    assert [r.status for r in caplog.records if r.getMessage() == "LLM call finished"] == ["cancelled"]
+    assert [r.status for r in caplog.records if r.getMessage() == "LLM call finished"] == [
+        "cancelled"
+    ]
 
 
 @pytest.mark.anyio

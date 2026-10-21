@@ -3,11 +3,13 @@ from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
 class Processing_Type(str, Enum):
     DOCUMENT_SUMMARY = "DOCUMENT_SUMMARY"
     INVOICE_EXTRACTION = "INVOICE_EXTRACTION"
     CONTRACT_METADATA = "CONTRACT_METADATA"
-    
+
 
 class Processing_status(str, Enum):
     PENDING = "PENDING"
@@ -16,12 +18,13 @@ class Processing_status(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
-    
+
 
 class Document_Status(str, Enum):
     ACTIVE = "ACTIVE"
     ARCHIVED = "ARCHIVED"
     DELETED = "DELETED"
+
 
 class Processing_Job_Status(str, Enum):
     QUEUED = "QUEUED"
@@ -30,10 +33,11 @@ class Processing_Job_Status(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     DEAD_LETTER = "DEAD_LETTER"
-    
+
+
 class DocumentResponse(BaseModel):
-    model_config = ConfigDict(from_attributes= True)
-    
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     status: Document_Status
@@ -41,7 +45,8 @@ class DocumentResponse(BaseModel):
     user_id: int
     created_at: datetime
     updated_at: datetime
-    
+
+
 class PaginatedDocumentResponse(BaseModel):
     documents: list[DocumentResponse]
     total: int

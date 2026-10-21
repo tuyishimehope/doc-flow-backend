@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from fastapi import Body
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserBase(BaseModel):
@@ -10,10 +10,12 @@ class UserBase(BaseModel):
     last_name: str = Body()
     email: EmailStr = Body()
 
+
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[EmailStr] = None
+
 
 class CreateUserRequest(UserBase):
     password: str = Body()
@@ -25,10 +27,12 @@ class UserResponse(UserBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str
+
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr = Field(max_length=120)

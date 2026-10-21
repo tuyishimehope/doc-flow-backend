@@ -43,7 +43,9 @@ class FileType:
 
 @dataclass(frozen=True)
 class UploadPolicy:
-    types: Mapping[str, FileType]  # extension (lower case, no dot) -> what that extension must contain
+    types: Mapping[
+        str, FileType
+    ]  # extension (lower case, no dot) -> what that extension must contain
     max_bytes: int
 
 
@@ -70,7 +72,9 @@ async def read_checked_upload(file: UploadFile, policy: UploadPolicy) -> Checked
     # One byte more than the limit is enough to know it is too big, so memory stays bounded.
     content = await file.read(policy.max_bytes + 1)
     if len(content) > policy.max_bytes:
-        raise UploadRejected(413, f"The file is too big. The limit is {_megabytes(policy.max_bytes)} MB.")
+        raise UploadRejected(
+            413, f"The file is too big. The limit is {_megabytes(policy.max_bytes)} MB."
+        )
     if not content:
         raise UploadRejected(422, "The file is empty.")
     if not file_type.matches(content):

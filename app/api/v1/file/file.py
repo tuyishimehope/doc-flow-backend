@@ -1,16 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.dependencies import get_db_session
 from app.service.auth.auth import CurrentUser
 from app.service.file.crud import get_count
-from app.service.file.file import get_all_files, get_file_by_id, delete_file_by_id
+from app.service.file.file import delete_file_by_id, get_all_files, get_file_by_id
 from app.service.file.schema import FileResponse, PaginatedFileResponse
 from app.utils.http import attachment_disposition
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1/files", tags=["files"])
 
@@ -20,14 +20,16 @@ class FileDeleteResponse(BaseModel):
     status: str
 
 
-@router.get("/{id}", status_code=status.HTTP_200_OK, summary="Get a file by id", description="You can get a file by id", responses={
-    200: {
-            "content": {
-                "application/pdf": {}
-            }
-            }
-})
-async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)):
+@router.get(
+    "/{id}",
+    status_code=status.HTTP_200_OK,
+    summary="Get a file by id",
+    description="You can get a file by id",
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def get_file_endpoint(
+    id: int, current_user: CurrentUser, db_session: AsyncSession = Depends(get_db_session)
+):
     """
     Get a file by id. The binary response may be PDF, DOCX, or an image.
 
@@ -39,7 +41,7 @@ async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: Asyn
         HTTPException: return expection when the file not found
 
     Returns:
-        file: Returns a file 
+        file: Returns a file
     """
     result = await get_file_by_id(id=id, current_user=current_user, db_session=db_session)
 
@@ -50,23 +52,35 @@ async def get_file_endpoint(id: int, current_user: CurrentUser, db_session: Asyn
             headers={"Content-Disposition": attachment_disposition(result["name"])},
         )
 
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                        detail="file not found")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file not found")
 
 
 @router.get("", response_model=PaginatedFileResponse)
-async def get_files(current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)], limit: int = Query(default=10, ge=1, le=50), skip: int = Query(default=0, ge=0)):
-    result = await get_all_files(limit=limit, skip=skip, user_id=current_user.id, db_session=db_session)
-    total = await get_count(user_id=current_user.id,db_session=db_session)
-    return PaginatedFileResponse(files=[FileResponse.model_validate(file) for file in result],
-                                 total=total,
-                                 skip=skip,
-                                 limit=limit,
-                                 has_more = skip + len(result) < total)
+async def get_files(
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+    limit: int = Query(default=10, ge=1, le=50),
+    skip: int = Query(default=0, ge=0),
+):
+    result = await get_all_files(
+        limit=limit, skip=skip, user_id=current_user.id, db_session=db_session
+    )
+    total = await get_count(user_id=current_user.id, db_session=db_session)
+    return PaginatedFileResponse(
+        files=[FileResponse.model_validate(file) for file in result],
+        total=total,
+        skip=skip,
+        limit=limit,
+        has_more=skip + len(result) < total,
+    )
 
 
 @router.delete("/{id}", response_model=FileDeleteResponse)
-async def delete_file(id: int, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
+async def delete_file(
+    id: int,
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
     result = await delete_file_by_id(id=id, current_user=current_user, db_session=db_session)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")

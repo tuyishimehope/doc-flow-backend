@@ -30,7 +30,9 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
 
-@CONVERSATIONS_ROUTER.post("", status_code=status.HTTP_201_CREATED, response_model=ConversationResponse)
+@CONVERSATIONS_ROUTER.post(
+    "", status_code=status.HTTP_201_CREATED, response_model=ConversationResponse
+)
 async def create_conversation_endpoint(
     body: ConversationCreate, current_user: CurrentUser, db_session: DbSession
 ):

@@ -40,7 +40,9 @@ def next_reset(now: datetime) -> datetime:
     return window_start(1, now) + timedelta(days=1)
 
 
-async def tokens_used_today(user_id: int, db_session: AsyncSession, *, now: datetime | None = None) -> int:
+async def tokens_used_today(
+    user_id: int, db_session: AsyncSession, *, now: datetime | None = None
+) -> int:
     """Where the day's total comes from. A feature whose cost is not saved on a chat message
     adds its share here, so it counts against the same budget."""
     now = now or datetime.now(timezone.utc)

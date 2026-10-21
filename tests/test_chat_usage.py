@@ -36,7 +36,9 @@ def full_usage() -> SimpleNamespace:
 
 def completion_with(usage_object) -> SimpleNamespace:
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="Paris"))], usage=usage_object, model=MODEL
+        choices=[SimpleNamespace(message=SimpleNamespace(content="Paris"))],
+        usage=usage_object,
+        model=MODEL,
     )
 
 
@@ -62,7 +64,12 @@ async def test_complete_reads_cached_and_reasoning_tokens_from_their_own_places(
 @pytest.mark.anyio
 async def test_stream_reads_cached_and_reasoning_tokens_too():
     done = await stream_done(full_usage())
-    assert (done.input_tokens, done.output_tokens, done.cached_tokens, done.reasoning_tokens) == (100, 40, 64, 25)
+    assert (done.input_tokens, done.output_tokens, done.cached_tokens, done.reasoning_tokens) == (
+        100,
+        40,
+        64,
+        25,
+    )
 
 
 @pytest.mark.anyio
@@ -70,7 +77,12 @@ async def test_stream_reads_cached_and_reasoning_tokens_too():
     "usage_object",
     [
         usage(prompt_tokens=7, completion_tokens=2),  # no details at all
-        usage(prompt_tokens=7, completion_tokens=2, prompt_tokens_details=None, completion_tokens_details=None),
+        usage(
+            prompt_tokens=7,
+            completion_tokens=2,
+            prompt_tokens_details=None,
+            completion_tokens_details=None,
+        ),
         usage(
             prompt_tokens=7,
             completion_tokens=2,
@@ -91,7 +103,12 @@ async def test_a_provider_that_leaves_out_the_details_does_not_break_either_call
 @pytest.mark.anyio
 async def test_a_provider_with_no_usage_at_all_gives_unknown_not_zero():
     result = await make_client(FakeOpenAI(completion_with(None))).complete(MESSAGES)
-    assert (result.input_tokens, result.output_tokens, result.cached_tokens, result.reasoning_tokens) == (None,) * 4
+    assert (
+        result.input_tokens,
+        result.output_tokens,
+        result.cached_tokens,
+        result.reasoning_tokens,
+    ) == (None,) * 4
 
 
 @pytest.mark.anyio
@@ -103,7 +120,12 @@ async def test_numbers_that_are_not_whole_numbers_are_treated_as_unknown():
         completion_tokens_details=SimpleNamespace(reasoning_tokens=None),
     )
     result = await make_client(FakeOpenAI(completion_with(odd))).complete(MESSAGES)
-    assert (result.input_tokens, result.output_tokens, result.cached_tokens, result.reasoning_tokens) == (None,) * 4
+    assert (
+        result.input_tokens,
+        result.output_tokens,
+        result.cached_tokens,
+        result.reasoning_tokens,
+    ) == (None,) * 4
 
 
 @pytest.mark.anyio
@@ -127,7 +149,9 @@ async def conversation(db_session, client, auth_headers) -> Conversation:
     return row
 
 
-async def store(db_session, conversation, usage_object: CallUsage | None, status=MessageStatus.COMPLETE):
+async def store(
+    db_session, conversation, usage_object: CallUsage | None, status=MessageStatus.COMPLETE
+):
     await add_message(
         conversation_id=conversation.id,
         role=MessageRole.ASSISTANT,
@@ -145,7 +169,14 @@ async def test_every_part_of_the_usage_is_stored_as_a_column(db_session, convers
     message = await store(
         db_session,
         conversation,
-        CallUsage("groq", input_tokens=100, output_tokens=40, cached_tokens=64, reasoning_tokens=25, latency_ms=830),
+        CallUsage(
+            "groq",
+            input_tokens=100,
+            output_tokens=40,
+            cached_tokens=64,
+            reasoning_tokens=25,
+            latency_ms=830,
+        ),
     )
     assert (message.provider, message.input_tokens, message.output_tokens) == ("groq", 100, 40)
     assert (message.cached_tokens, message.reasoning_tokens, message.latency_ms) == (64, 25, 830)
@@ -163,7 +194,12 @@ async def test_an_answer_from_a_provider_without_usage_still_saves(db_session, c
 @pytest.mark.anyio
 async def test_a_message_with_no_usage_at_all_saves_with_empty_columns(db_session, conversation):
     message = await store(db_session, conversation, None)
-    columns = (message.provider, message.input_tokens, message.output_tokens, message.cached_tokens)
+    columns = (
+        message.provider,
+        message.input_tokens,
+        message.output_tokens,
+        message.cached_tokens,
+    )
     assert columns == (None,) * 4 and message.latency_ms is None
 
 
@@ -173,10 +209,18 @@ async def test_an_empty_provider_label_is_stored_as_unknown(db_session, conversa
 
 
 @pytest.mark.anyio
-async def test_the_finished_stream_stores_usage_and_a_cut_off_one_does_not(db_session, conversation):
+async def test_the_finished_stream_stores_usage_and_a_cut_off_one_does_not(
+    db_session, conversation
+):
     finished = StreamDone(
-        model="m", input_tokens=9, output_tokens=3, latency_ms=70, first_piece_ms=20, attempts=2,
-        provider="openrouter", cached_tokens=4,
+        model="m",
+        input_tokens=9,
+        output_tokens=3,
+        latency_ms=70,
+        first_piece_ms=20,
+        attempts=2,
+        provider="openrouter",
+        cached_tokens=4,
     )
 
     async def events(*items):
@@ -197,8 +241,16 @@ async def test_the_finished_stream_stores_usage_and_a_cut_off_one_does_not(db_se
         pass
 
     complete, partial = await get_messages(conversation.id, db_session)
-    assert (complete.provider, complete.input_tokens, complete.output_tokens) == ("openrouter", 9, 3)
-    assert (complete.cached_tokens, complete.reasoning_tokens, complete.latency_ms) == (4, None, 70)
+    assert (complete.provider, complete.input_tokens, complete.output_tokens) == (
+        "openrouter",
+        9,
+        3,
+    )
+    assert (complete.cached_tokens, complete.reasoning_tokens, complete.latency_ms) == (
+        4,
+        None,
+        70,
+    )
     assert complete.meta == {"first_piece_ms": 20, "attempts": 2}
     assert partial.status == "error"
     assert (partial.provider, partial.input_tokens, partial.latency_ms) == (None, None, None)

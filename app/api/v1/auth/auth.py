@@ -1,25 +1,40 @@
-from typing import Annotated
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select
 from sqlalchemy import delete as sql_delete
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.service.auth.auth import create_user, delete_user_by_id, generate_reset_token, hash_password, hash_reset_token, update_user
-from app.db.dependencies import get_db_session
-from app.service.auth.schema import ChangePasswordRequest, CreateUserRequest, ForgotPasswordRequest, MessageResponse, ResetPasswordRequest, UserResponse, UserUpdate
-from app.service.auth.auth import create_access_token, verify_password
-from app.service.auth.schema import Token
-from app.models import schema
-from app.service.auth.auth import CurrentUser
 from app.core.config import settings
 from app.core.rate_limit import check_rate_limit
-from app.utils.email_utils import send_password_reset_email
+from app.db.dependencies import get_db_session
+from app.models import schema
+from app.service.auth.auth import (
+    CurrentUser,
+    create_access_token,
+    create_user,
+    delete_user_by_id,
+    generate_reset_token,
+    hash_password,
+    hash_reset_token,
+    update_user,
+    verify_password,
+)
+from app.service.auth.schema import (
+    ChangePasswordRequest,
+    CreateUserRequest,
+    ForgotPasswordRequest,
+    MessageResponse,
+    ResetPasswordRequest,
+    Token,
+    UserResponse,
+    UserUpdate,
+)
 from app.service.document.crud import get_user_stats
 from app.service.document.schema import UserStatsResponse
-
+from app.utils.email_utils import send_password_reset_email
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -36,7 +51,8 @@ async def login_for_access_token(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     await check_rate_limit(
-        f"login:{form_data.username.lower()}", LOGIN_ATTEMPTS_PER_WINDOW, LOGIN_WINDOW_SECONDS)
+        f"login:{form_data.username.lower()}", LOGIN_ATTEMPTS_PER_WINDOW, LOGIN_WINDOW_SECONDS
+    )
 
     # Look up user by email (case-insensitive)
     # Note: OAuth2PasswordRequestForm uses "username" field, but we treat it as email
@@ -58,8 +74,7 @@ async def login_for_access_token(
         )
 
     # Create access token with user id as subject
-    access_token_expires = timedelta(
-        minutes=settings.access_token_expire_minutes)
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=access_token_expires,
@@ -68,55 +83,78 @@ async def login_for_access_token(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user(
-    current_user: CurrentUser
-):
+async def get_current_user(current_user: CurrentUser):
     return current_user
 
 
 @router.get("/me/stats", response_model=UserStatsResponse)
-async def get_my_stats(current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db_session)]):
+async def get_my_stats(
+    current_user: CurrentUser, db: Annotated[AsyncSession, Depends(get_db_session)]
+):
     """Dashboard counts for the current user's documents and processing requests."""
     return await get_user_stats(user_id=current_user.id, db_session=db)
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
 async def signup(user: CreateUserRequest, db_session: AsyncSession = Depends(get_db_session)):
-    result = await create_user(db_session=db_session, first_name=user.first_name, last_name=user.last_name, email=user.email, password=user.password)
+    result = await create_user(
+        db_session=db_session,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        password=user.password,
+    )
 
     if result:
         return result
 
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Email already exists")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
 
 
 @router.patch("/{id}", response_model=UserResponse)
-async def update_user_info(id: int, user_info: UserUpdate, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
+async def update_user_info(
+    id: int,
+    user_info: UserUpdate,
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
     result = await update_user(id, user_info, current_user, db_session)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="You are not allowed to perform this action")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to perform this action",
+        )
     return result
 
 
 @router.delete("/{id}", response_model=UserResponse)
-async def delete_user(id: int, current_user: CurrentUser, db_session: Annotated[AsyncSession, Depends(get_db_session)]):
+async def delete_user(
+    id: int,
+    current_user: CurrentUser,
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+):
     result = await delete_user_by_id(id, current_user, db_session)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="You are not allowed to perform this action")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not allowed to perform this action",
+        )
     return result
 
 
-@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED, response_model=MessageResponse)
+@router.post(
+    "/forgot-password", status_code=status.HTTP_202_ACCEPTED, response_model=MessageResponse
+)
 async def forgot_password(
     request_data: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ):
     await check_rate_limit(
-        f"forgot-password:{request_data.email.lower()}", RESET_EMAILS_PER_WINDOW, RESET_WINDOW_SECONDS)
+        f"forgot-password:{request_data.email.lower()}",
+        RESET_EMAILS_PER_WINDOW,
+        RESET_WINDOW_SECONDS,
+    )
 
     result = await db.execute(
         select(schema.User).where(

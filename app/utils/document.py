@@ -2,13 +2,11 @@ import io
 import logging
 from pathlib import Path
 
-from fastapi import UploadFile
-from PIL import Image, ImageOps
-from PIL import UnidentifiedImageError
 import pytesseract
+from fastapi import UploadFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 logger = logging.getLogger(__name__)
-
 
 
 def get_file_extension(file: UploadFile) -> str:
@@ -17,13 +15,14 @@ def get_file_extension(file: UploadFile) -> str:
 
     return Path(file.filename).suffix.lstrip(".")
 
+
 def valid_type_document(file: UploadFile) -> bool:
     ALLOWED_CONTENT_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "image/jpeg",
-    "image/png",
-    "image/tiff",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
     }
     return file.content_type in ALLOWED_CONTENT_TYPES
 
@@ -65,15 +64,22 @@ def validate_document_content(file: UploadFile, content: bytes) -> bool:
         try:
             with ZipFile(io.BytesIO(content)) as archive:
                 entries = archive.infolist()
-                if len(entries) > 10_000 or sum(entry.file_size for entry in entries) > 50 * 1024 * 1024:
+                if (
+                    len(entries) > 10_000
+                    or sum(entry.file_size for entry in entries) > 50 * 1024 * 1024
+                ):
                     return False
-                if "[Content_Types].xml" not in archive.namelist() or "word/document.xml" not in archive.namelist():
+                if (
+                    "[Content_Types].xml" not in archive.namelist()
+                    or "word/document.xml" not in archive.namelist()
+                ):
                     return False
                 return archive.testzip() is None
         except (BadZipFile, OSError):
             return False
 
     return False
+
 
 def extract_text_from_pdf(file_stream) -> str:
     from pypdf import PdfReader
@@ -95,7 +101,9 @@ def extract_text_from_pdf(file_stream) -> str:
     from pdf2image import convert_from_bytes
 
     images = convert_from_bytes(file_stream.getvalue())
-    return "\n".join(pytesseract.image_to_string(ImageOps.grayscale(page)) for page in images).strip()
+    return "\n".join(
+        pytesseract.image_to_string(ImageOps.grayscale(page)) for page in images
+    ).strip()
 
 
 def extract_text_from_doc(file_stream) -> str:

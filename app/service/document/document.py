@@ -8,20 +8,31 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-
+from app.models.schema import Document, Processing_Request
 from app.service.auth.auth import CurrentUser
+from app.service.auth.crud import get_user_by_id
+from app.service.document.crud import (
+    get_processing_request_result,
+    get_processing_request_status,
+    save_document,
+    save_file,
+    save_processing_request,
+)
+from app.service.document.schema import ExportFormat, Processing_status, Processing_Type
+from app.service.file.file import delete_file, post_file
 from app.tasks.document_task import start_processing
 from app.utils.document import get_file_extension
-from app.models.schema import Document, Processing_Request
-from app.service.document.schema import ExportFormat, Processing_status, Processing_Type
-from app.service.file.file import post_file, delete_file
-from app.service.document.crud import get_processing_request_result, get_processing_request_status, save_document, save_file, save_processing_request
-from app.service.auth.crud import get_user_by_id
 
 logger = logging.getLogger(__name__)
 
 
-async def process_document(id: int, file: UploadFile, processing_type: Processing_Type, instructions: str | None, db_session: AsyncSession):
+async def process_document(
+    id: int,
+    file: UploadFile,
+    processing_type: Processing_Type,
+    instructions: str | None,
+    db_session: AsyncSession,
+):
     stored_object_id = None
     try:
         file_name = get_file_extension(file)
@@ -36,9 +47,16 @@ async def process_document(id: int, file: UploadFile, processing_type: Processin
         if user is None:
             raise ValueError("Authenticated user was not found")
 
-        document_object = await save_document(user_id=user.id, file=file, file_object=file_object, db_session=db_session)
+        document_object = await save_document(
+            user_id=user.id, file=file, file_object=file_object, db_session=db_session
+        )
 
-        processing_request_object = await save_processing_request(document_object=document_object, processing_type=processing_type, instructions=instructions, db_session=db_session)
+        processing_request_object = await save_processing_request(
+            document_object=document_object,
+            processing_type=processing_type,
+            instructions=instructions,
+            db_session=db_session,
+        )
 
         if processing_request_object is None:
             raise RuntimeError("Could not create the processing request")
@@ -63,7 +81,11 @@ async def process_document(id: int, file: UploadFile, processing_type: Processin
             },
         )
 
-        return {"document_id": document_object.id, "processing_request_id": processing_request_object.id, "status": processing_request_object.status}
+        return {
+            "document_id": document_object.id,
+            "processing_request_id": processing_request_object.id,
+            "status": processing_request_object.status,
+        }
     except Exception:
         await db_session.rollback()
         logger.exception(
@@ -80,27 +102,28 @@ async def process_document(id: int, file: UploadFile, processing_type: Processin
 
 
 async def get_processing_status(
-    processing_request_id: int,
-    current_user: CurrentUser,
-    db_session: AsyncSession
+    processing_request_id: int, current_user: CurrentUser, db_session: AsyncSession
 ):
-    result = await get_processing_request_status(processing_request_id=processing_request_id, current_user=current_user, db_session=db_session)
+    result = await get_processing_request_status(
+        processing_request_id=processing_request_id,
+        current_user=current_user,
+        db_session=db_session,
+    )
 
     if not result:
         return None
 
-    return {
-        "id": result.id,
-        "status": result.status
-    }
+    return {"id": result.id, "status": result.status}
 
 
 async def get_processing_result(
-    processing_request_id: int,
-    current_user: CurrentUser,
-    db_session: AsyncSession
+    processing_request_id: int, current_user: CurrentUser, db_session: AsyncSession
 ):
-    result = await get_processing_request_result(processing_request_id=processing_request_id, current_user=current_user, db_session=db_session)
+    result = await get_processing_request_result(
+        processing_request_id=processing_request_id,
+        current_user=current_user,
+        db_session=db_session,
+    )
 
     if not result:
         return None
@@ -117,7 +140,8 @@ async def queue_processing_request(
     """Run another processing pass over an already uploaded document."""
     latest_version = await db_session.scalar(
         select(func.max(Processing_Request.version)).where(
-            Processing_Request.document_id == document.id)
+            Processing_Request.document_id == document.id
+        )
     )
     processing_request = Processing_Request(
         document_id=document.id,
@@ -157,7 +181,9 @@ def _flatten(value, prefix: str = ""):
         yield prefix or "summary", "" if value is None else value
 
 
-def export_result(processing_request_id: int, result, export_format: ExportFormat) -> tuple[bytes, str, str]:
+def export_result(
+    processing_request_id: int, result, export_format: ExportFormat
+) -> tuple[bytes, str, str]:
     """Return (content, media type, filename) for a completed result."""
     if export_format == ExportFormat.JSON:
         content = json.dumps(result, indent=2, ensure_ascii=False).encode()

@@ -39,14 +39,34 @@ class Provider:
 def configured_providers() -> dict[str, Provider]:
     """Every provider that has an API key, read from the current settings."""
     candidates = [
-        Provider("openrouter", "OpenRouter", settings.OPENROUTER_BASE_URL,
-                 settings.OPENROUTER_API_KEY.get_secret_value(), settings.CHAT_MODEL),
-        Provider("gemini", "Google Gemini", settings.GEMINI_BASE_URL,
-                 settings.GEMINI_AI_API_KEY.get_secret_value(), settings.CHAT_GEMINI_MODEL),
-        Provider("groq", "Groq", settings.GROQ_BASE_URL,
-                 settings.GROQ_AI_API_KEY.get_secret_value(), settings.CHAT_GROQ_MODEL),
-        Provider("openai", "OpenAI", settings.OPENAI_BASE_URL,
-                 settings.OPENAI_API_KEY, settings.CHAT_OPENAI_MODEL),
+        Provider(
+            "openrouter",
+            "OpenRouter",
+            settings.OPENROUTER_BASE_URL,
+            settings.OPENROUTER_API_KEY.get_secret_value(),
+            settings.CHAT_MODEL,
+        ),
+        Provider(
+            "gemini",
+            "Google Gemini",
+            settings.GEMINI_BASE_URL,
+            settings.GEMINI_AI_API_KEY.get_secret_value(),
+            settings.CHAT_GEMINI_MODEL,
+        ),
+        Provider(
+            "groq",
+            "Groq",
+            settings.GROQ_BASE_URL,
+            settings.GROQ_AI_API_KEY.get_secret_value(),
+            settings.CHAT_GROQ_MODEL,
+        ),
+        Provider(
+            "openai",
+            "OpenAI",
+            settings.OPENAI_BASE_URL,
+            settings.OPENAI_API_KEY,
+            settings.CHAT_OPENAI_MODEL,
+        ),
     ]
     return {p.id: p for p in candidates if p.api_key}
 
@@ -95,8 +115,10 @@ def get_llm_client(choice: str | None = None) -> LLMClient:
     clients: list[LLMClient] = []
     for position, name in enumerate(order):
         is_last = position == len(order) - 1
-        retries = settings.CHAT_MAX_RETRIES if is_last else min(
-            settings.CHAT_MAX_RETRIES, settings.CHAT_FALLBACK_MAX_RETRIES
+        retries = (
+            settings.CHAT_MAX_RETRIES
+            if is_last
+            else min(settings.CHAT_MAX_RETRIES, settings.CHAT_FALLBACK_MAX_RETRIES)
         )
         clients.append(_build(available[name], max_retries=retries))
     if len(clients) == 1:
@@ -109,8 +131,12 @@ def list_models() -> list[dict[str, str | None]]:
     available = configured_providers()
     models: list[dict[str, str | None]] = []
     if available:
-        models.append({"id": AUTO, "label": "Automatic (switches provider if one fails)", "model": None})
+        models.append(
+            {"id": AUTO, "label": "Automatic (switches provider if one fails)", "model": None}
+        )
     for name in DEFAULT_ORDER:
         if name in available:
-            models.append({"id": name, "label": available[name].label, "model": available[name].model})
+            models.append(
+                {"id": name, "label": available[name].label, "model": available[name].model}
+            )
     return models

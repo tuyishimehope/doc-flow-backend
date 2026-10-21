@@ -16,8 +16,12 @@ CHAT = "/api/v1/chat"
 
 
 def set_keys(monkeypatch, *providers: str) -> None:
-    names = {"openrouter": "OPENROUTER_API_KEY", "gemini": "GEMINI_AI_API_KEY",
-             "groq": "GROQ_AI_API_KEY", "openai": "OPENAI_API_KEY"}
+    names = {
+        "openrouter": "OPENROUTER_API_KEY",
+        "gemini": "GEMINI_AI_API_KEY",
+        "groq": "GROQ_AI_API_KEY",
+        "openai": "OPENAI_API_KEY",
+    }
     for provider, setting in names.items():
         value = "secret-key" if provider in providers else ""
         monkeypatch.setattr(settings, setting, value if provider == "openai" else SecretStr(value))

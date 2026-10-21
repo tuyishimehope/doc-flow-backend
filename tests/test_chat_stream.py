@@ -26,7 +26,12 @@ URL = "/api/v1/chat/stream"
 
 def done_event() -> StreamDone:
     return StreamDone(
-        model="fake/model", input_tokens=10, output_tokens=2, latency_ms=50, first_piece_ms=20, attempts=1
+        model="fake/model",
+        input_tokens=10,
+        output_tokens=2,
+        latency_ms=50,
+        first_piece_ms=20,
+        attempts=1,
     )
 
 
@@ -74,7 +79,9 @@ def parse_events(body: str) -> list[tuple[str, dict]]:
         lines = block.split("\n")
         assert len(lines) == 2, f"an event must be exactly two lines, got: {block!r}"
         assert lines[0].startswith("event: ") and lines[1].startswith("data: ")
-        events.append((lines[0].removeprefix("event: "), json.loads(lines[1].removeprefix("data: "))))
+        events.append(
+            (lines[0].removeprefix("event: "), json.loads(lines[1].removeprefix("data: ")))
+        )
     return events
 
 
@@ -137,7 +144,9 @@ async def test_streams_tokens_then_done(chat_client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_sends_the_same_prompt_as_the_non_streaming_endpoint(chat_client: AsyncClient, fake_llm):
+async def test_sends_the_same_prompt_as_the_non_streaming_endpoint(
+    chat_client: AsyncClient, fake_llm
+):
     await chat_client.post(URL, json={"message": "  Capital of France?  "})
     assert fake_llm.calls == [
         [
@@ -148,7 +157,9 @@ async def test_sends_the_same_prompt_as_the_non_streaming_endpoint(chat_client: 
 
 
 @pytest.mark.anyio
-async def test_newlines_and_quotes_in_the_text_cannot_break_the_event_format(chat_client, fake_llm):
+async def test_newlines_and_quotes_in_the_text_cannot_break_the_event_format(
+    chat_client, fake_llm
+):
     fake_llm.pieces = ('line one\n\nline "two"', "ünï ✓ \\ end")
     response = await chat_client.post(URL, json={"message": "hi"})
     texts = [data["text"] for name, data in parse_events(response.text) if name == "token"]
@@ -186,7 +197,9 @@ async def test_requires_authentication(client: AsyncClient, fake_llm):
     ],
     ids=["timeout", "rate-limited", "unavailable", "other"],
 )
-async def test_failure_before_the_first_piece_is_a_real_http_status(chat_client, fake_llm, error, expected_status):
+async def test_failure_before_the_first_piece_is_a_real_http_status(
+    chat_client, fake_llm, error, expected_status
+):
     fake_llm.fail_before = error
     response = await chat_client.post(URL, json={"message": "hi"})
 
@@ -219,7 +232,9 @@ async def test_failure_after_the_first_piece_becomes_an_error_event(chat_client,
 
 
 @pytest.mark.anyio
-async def test_an_unexpected_crash_mid_stream_still_ends_with_an_error_event(chat_client, fake_llm):
+async def test_an_unexpected_crash_mid_stream_still_ends_with_an_error_event(
+    chat_client, fake_llm
+):
     fake_llm.fail_after = RuntimeError("secret internal detail")
     response = await chat_client.post(URL, json={"message": "hi"})
 
@@ -285,8 +300,12 @@ async def test_client_disconnect_stops_the_llm_stream_and_keeps_the_partial_answ
     assert fake.closed, "the model call kept running after the client left"
 
     # The conversation event is the first thing sent, so the id is in the first body chunk.
-    first_chunk = next(m["body"] for m in sent if m["type"] == "http.response.body" and m.get("body"))
-    conversation_id = json.loads(first_chunk.decode().split("data: ")[1].split("\n")[0])["conversation_id"]
+    first_chunk = next(
+        m["body"] for m in sent if m["type"] == "http.response.body" and m.get("body")
+    )
+    conversation_id = json.loads(first_chunk.decode().split("data: ")[1].split("\n")[0])[
+        "conversation_id"
+    ]
     saved = await get_messages(conversation_id, db_session)
     assert [(m.role, m.content, m.status) for m in saved] == [
         ("user", "hi", "complete"),
@@ -295,7 +314,9 @@ async def test_client_disconnect_stops_the_llm_stream_and_keeps_the_partial_answ
 
 
 @pytest.mark.anyio
-async def test_the_chosen_model_reaches_the_picker_and_the_provider_is_reported(chat_client, fake_llm):
+async def test_the_chosen_model_reaches_the_picker_and_the_provider_is_reported(
+    chat_client, fake_llm
+):
     asked: list = []
 
     def picker(model):

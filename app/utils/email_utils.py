@@ -80,10 +80,10 @@ async def send_processing_finished_email(
     task = processing_type.replace("_", " ").lower()
     if succeeded:
         subject = f"Your document is ready - {settings.app_name}"
-        outcome = f"We finished the {task} for \"{document_name}\"."
+        outcome = f'We finished the {task} for "{document_name}".'
     else:
         subject = f"We could not process your document - {settings.app_name}"
-        outcome = f"The {task} for \"{document_name}\" failed: {failure_reason}"
+        outcome = f'The {task} for "{document_name}" failed: {failure_reason}'
 
     plain_text = f"""Hi {first_name},
 

@@ -7,7 +7,15 @@ import httpx
 import pytest
 
 from scripts import run_evals
-from scripts.run_evals import EvalError, check_answer, compare_runs, load_cases, run_case, run_cases, save_run
+from scripts.run_evals import (
+    EvalError,
+    check_answer,
+    compare_runs,
+    load_cases,
+    run_case,
+    run_cases,
+    save_run,
+)
 
 # ---- checks ------------------------------------------------------------------------------------
 
@@ -32,7 +40,9 @@ def test_check_answer(answer, checks, ok):
 
 
 def test_every_failed_check_is_named():
-    failures = check_answer("Rome is big and long and wordy", {"contains_all": ["Paris"], "max_words": 3})
+    failures = check_answer(
+        "Rome is big and long and wordy", {"contains_all": ["Paris"], "max_words": 3}
+    )
     assert len(failures) == 2 and "Paris" in failures[0] and "3" in failures[1]
 
 
@@ -60,14 +70,26 @@ CASES = {
     "version": 1,
     "prompt": "chat_v1",
     "cases": [
-        {"id": "a", "category": "fact", "message": "Capital of France?", "checks": {"contains_all": ["Paris"]}},
-        {"id": "b", "category": "fact", "message": "Capital of Italy?", "checks": {"contains_all": ["Rome"]}},
+        {
+            "id": "a",
+            "category": "fact",
+            "message": "Capital of France?",
+            "checks": {"contains_all": ["Paris"]},
+        },
+        {
+            "id": "b",
+            "category": "fact",
+            "message": "Capital of Italy?",
+            "checks": {"contains_all": ["Rome"]},
+        },
     ],
 }
 
 
 class FakeApi:
-    def __init__(self, answers: dict[str, str], *, rate_limited_first: int = 0, status: int = 200) -> None:
+    def __init__(
+        self, answers: dict[str, str], *, rate_limited_first: int = 0, status: int = 200
+    ) -> None:
         self.answers = answers
         self.rate_limited = rate_limited_first
         self.status = status
@@ -77,7 +99,11 @@ class FakeApi:
         self.requests.append(request)
         if request.url.path.endswith("/token"):
             ok = b"password=right" in request.content
-            return httpx.Response(200, json={"access_token": "T"}) if ok else httpx.Response(401, json={})
+            return (
+                httpx.Response(200, json={"access_token": "T"})
+                if ok
+                else httpx.Response(401, json={})
+            )
         if self.rate_limited:
             self.rate_limited -= 1
             return httpx.Response(429, json={"detail": "slow down"}, headers={"Retry-After": "7"})
@@ -110,7 +136,9 @@ def test_the_model_choice_is_sent_only_when_given():
 
 
 def test_a_rate_limit_is_waited_out_using_retry_after():
-    api = FakeApi({"Capital of France?": "Paris", "Capital of Italy?": "Rome"}, rate_limited_first=2)
+    api = FakeApi(
+        {"Capital of France?": "Paris", "Capital of Italy?": "Rome"}, rate_limited_first=2
+    )
     waits: list[float] = []
     run = run_cases(client_for(api), CASES, None, sleep=waits.append)
     assert waits == [7.0, 7.0] and run["score"] == 1.0
@@ -133,11 +161,20 @@ def test_a_pause_is_kept_between_questions_but_not_before_the_first():
 
 
 def make_run(passes: dict[str, bool], **extra) -> dict:
-    results = [{"id": i, "passed": ok, "failures": [], "answer": "x", "model": "m"} for i, ok in passes.items()]
+    results = [
+        {"id": i, "passed": ok, "failures": [], "answer": "x", "model": "m"}
+        for i, ok in passes.items()
+    ]
     passed = sum(passes.values())
     return {
-        "started_at": "2026-10-19T12:00:00+00:00", "prompt": "chat_v1", "model_choice": "auto",
-        "passed": passed, "total": len(passes), "score": passed / len(passes), "results": results, **extra,
+        "started_at": "2026-10-19T12:00:00+00:00",
+        "prompt": "chat_v1",
+        "model_choice": "auto",
+        "passed": passed,
+        "total": len(passes),
+        "score": passed / len(passes),
+        "results": results,
+        **extra,
     }
 
 
@@ -174,14 +211,27 @@ def cases_file(tmp_path) -> Path:
 def use_fake_api(monkeypatch, api: FakeApi) -> None:
     real_client = httpx.Client
     monkeypatch.setattr(
-        run_evals.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(api), **kw)
+        run_evals.httpx,
+        "Client",
+        lambda **kw: real_client(transport=httpx.MockTransport(api), **kw),
     )
 
 
-def test_main_logs_in_runs_saves_and_exits_with_the_score_gate(monkeypatch, tmp_path, cases_file, capsys):
+def test_main_logs_in_runs_saves_and_exits_with_the_score_gate(
+    monkeypatch, tmp_path, cases_file, capsys
+):
     api = FakeApi({"Capital of France?": "Paris", "Capital of Italy?": "Milan"})
     use_fake_api(monkeypatch, api)
-    args = ["--cases", str(cases_file), "--out", str(tmp_path / "out"), "--email", "a@b.c", "--password", "right"]
+    args = [
+        "--cases",
+        str(cases_file),
+        "--out",
+        str(tmp_path / "out"),
+        "--email",
+        "a@b.c",
+        "--password",
+        "right",
+    ]
 
     assert run_evals.main(args) == 0  # no gate by default
     assert run_evals.main(args + ["--min-score", "0.9"]) == 1  # 50% is below 90%

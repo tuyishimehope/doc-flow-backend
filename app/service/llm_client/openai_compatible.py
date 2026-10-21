@@ -20,9 +20,9 @@ from openai import (
     APIError,
     APIStatusError,
     APITimeoutError,
+    AsyncOpenAI,
     RateLimitError,
 )
-from openai import AsyncOpenAI
 
 from app.core.observability import set_tag
 from app.service.llm_client.llm_client import (
@@ -79,7 +79,9 @@ class OpenAICompatibleClient:
         self._sleep = sleep  # injectable so tests do not really wait
 
     async def complete(self, messages: list[Message]) -> LLMResponse:
-        set_tag("llm.provider", self.provider)  # the last one set is the one that handled the request
+        set_tag(
+            "llm.provider", self.provider
+        )  # the last one set is the one that handled the request
         started = time.monotonic()
         state = _CallState(model=self._model)
         try:
@@ -280,7 +282,11 @@ def _classify(exc: APIError) -> tuple[LLMError, bool, float | None]:
         if code == 408 or code >= 500:
             return LLMUnavailableError(f"Provider error {code}"), True, None
         if code in (401, 402, 403):  # bad key or no credit: retrying cannot help
-            return LLMUnavailableError(f"Provider refused our credentials or credit ({code})"), False, None
+            return (
+                LLMUnavailableError(f"Provider refused our credentials or credit ({code})"),
+                False,
+                None,
+            )
         # Other 4xx: never retried here, but another provider may still succeed. Providers
         # use these codes for their own problems too: Gemini answers 400 to an invalid API key,
         # Groq answers 400 to a retired model, and a retired model is a 404 elsewhere.

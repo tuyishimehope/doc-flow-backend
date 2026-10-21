@@ -46,8 +46,13 @@ class Scripted:
         if self.error:
             raise self.error
         return LLMResponse(
-            text=f"from {self.provider}", model=f"{self.provider}/model", input_tokens=1,
-            output_tokens=1, latency_ms=1, attempts=1, provider=self.provider,
+            text=f"from {self.provider}",
+            model=f"{self.provider}/model",
+            input_tokens=1,
+            output_tokens=1,
+            latency_ms=1,
+            attempts=1,
+            provider=self.provider,
         )
 
     async def stream(self, messages):
@@ -63,8 +68,13 @@ class Scripted:
             if self.error_after_piece:
                 raise self.error_after_piece
             yield StreamDone(
-                model=f"{self.provider}/model", input_tokens=1, output_tokens=1, latency_ms=1,
-                first_piece_ms=1, attempts=1, provider=self.provider,
+                model=f"{self.provider}/model",
+                input_tokens=1,
+                output_tokens=1,
+                latency_ms=1,
+                first_piece_ms=1,
+                attempts=1,
+                provider=self.provider,
             )
         finally:
             self.closed = True

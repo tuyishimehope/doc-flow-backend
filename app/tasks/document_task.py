@@ -6,8 +6,8 @@ from io import BytesIO
 import openai
 from sqlalchemy import Select
 
-from app.db.session import SyncSession
 from app.core.config import settings
+from app.db.session import SyncSession
 from app.models.schema import (
     Document,
     Extracted_Result,
@@ -18,8 +18,8 @@ from app.models.schema import (
 )
 from app.service.document.schema import (
     Processing_Job_Status,
-    Processing_Type,
     Processing_status,
+    Processing_Type,
 )
 from app.service.file.file import get_file
 from app.service.openai.service import OpenaiService
@@ -81,7 +81,12 @@ def start_processing(self, processing_request_id: int):
         raise
 
 
-async def notify_owner(db_session, processing_request: Processing_Request, succeeded: bool, failure_reason: str | None = None):
+async def notify_owner(
+    db_session,
+    processing_request: Processing_Request,
+    succeeded: bool,
+    failure_reason: str | None = None,
+):
     """Email the document owner. Never fails the task: the result is already saved."""
     if not settings.processing_email_enabled:
         return
@@ -155,7 +160,10 @@ async def process_document(self, processing_request_id: int):
 
         if file_record.content_type == "application/pdf":
             extracted_content = extract_text_from_pdf(BytesIO(file_bytes))
-        elif file_record.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        elif (
+            file_record.content_type
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ):
             extracted_content = extract_text_from_doc(BytesIO(file_bytes))
         elif file_record.content_type and file_record.content_type.startswith("image/"):
             extracted_content = extract_text_from_image(file_bytes)
@@ -213,9 +221,8 @@ async def process_document(self, processing_request_id: int):
     except Exception as exc:
         db_session.rollback()
         if processing_request is not None:
-            will_retry = (
-                not isinstance(exc, PERMANENT_ERRORS)
-                and self.request.retries < (self.max_retries or 0)
+            will_retry = not isinstance(exc, PERMANENT_ERRORS) and self.request.retries < (
+                self.max_retries or 0
             )
             failure_reason = describe_failure(exc)
             processing_request.status = (
@@ -230,7 +237,8 @@ async def process_document(self, processing_request_id: int):
             db_session.commit()
             if not will_retry:
                 await notify_owner(
-                    db_session, processing_request, succeeded=False, failure_reason=failure_reason)
+                    db_session, processing_request, succeeded=False, failure_reason=failure_reason
+                )
         raise
     finally:
         if file_object is not None:

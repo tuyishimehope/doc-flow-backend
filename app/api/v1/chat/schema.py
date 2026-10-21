@@ -122,6 +122,7 @@ class ChatStatsResponse(BaseModel):
     reasoning_tokens: int
     per_day: list[DailyUsage]
 
+
 class TranscriptionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

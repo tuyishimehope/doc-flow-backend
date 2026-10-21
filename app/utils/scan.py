@@ -43,7 +43,9 @@ async def scan_upload(content: bytes) -> None:
         )
     except (OSError, EOFError, asyncio.TimeoutError, asyncio.LimitOverrunError):
         _log(logging.ERROR, "Virus scanner unreachable", "unavailable", started, exc_info=True)
-        raise UploadRejected(503, "File scanning is unavailable right now. Please try again shortly.") from None
+        raise UploadRejected(
+            503, "File scanning is unavailable right now. Please try again shortly."
+        ) from None
 
     verdict = reply.rstrip(b"\0\n").decode("utf-8", "replace").removeprefix("stream: ")
     if verdict == "OK":
@@ -51,9 +53,19 @@ async def scan_upload(content: bytes) -> None:
         return
     if verdict.endswith(" FOUND"):
         # The signature name is ClamAV's, not the user's data, so it is safe to log.
-        _log(logging.WARNING, f"Upload rejected by virus scan: {verdict.removesuffix(' FOUND')}", "infected", started)
+        _log(
+            logging.WARNING,
+            f"Upload rejected by virus scan: {verdict.removesuffix(' FOUND')}",
+            "infected",
+            started,
+        )
         raise UploadRejected(422, "The file was rejected by the virus scan.")
-    _log(logging.ERROR, f"Virus scanner gave an unexpected answer: {verdict[:100]}", "unavailable", started)
+    _log(
+        logging.ERROR,
+        f"Virus scanner gave an unexpected answer: {verdict[:100]}",
+        "unavailable",
+        started,
+    )
     raise UploadRejected(503, "File scanning is unavailable right now. Please try again shortly.")
 
 
@@ -80,7 +92,11 @@ def _log(level: int, message: str, status: str, started: float, **kwargs) -> Non
     logger.log(
         level,
         message,
-        extra={"provider": PROVIDER, "status": status, "latency_ms": int((time.monotonic() - started) * 1000)},
+        extra={
+            "provider": PROVIDER,
+            "status": status,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+        },
         **kwargs,
     )
 
@@ -89,4 +105,6 @@ def _warn_scanning_is_off_once() -> None:
     global _warned_off
     if not _warned_off:
         _warned_off = True
-        logger.warning("Virus scanning is off because CLAMAV_HOST is empty; uploads are not scanned")
+        logger.warning(
+            "Virus scanning is off because CLAMAV_HOST is empty; uploads are not scanned"
+        )

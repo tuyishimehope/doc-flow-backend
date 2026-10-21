@@ -33,14 +33,24 @@ def test_build_messages_without_history_is_unchanged():
 
 
 def test_trim_history_drops_the_oldest_messages_first():
-    history = [turn("user", "a" * 10), turn("assistant", "b" * 10), turn("user", "c" * 10), turn("assistant", "d" * 10)]
+    history = [
+        turn("user", "a" * 10),
+        turn("assistant", "b" * 10),
+        turn("user", "c" * 10),
+        turn("assistant", "d" * 10),
+    ]
     kept = trim_history(history, max_chars=25)
     # The two newest fit (20 chars), but the conversation must start with the user.
     assert kept == history[2:]
 
 
 def test_trim_history_never_starts_with_an_assistant_message():
-    history = [turn("user", "a" * 10), turn("assistant", "b" * 10), turn("user", "c" * 10), turn("assistant", "d" * 10)]
+    history = [
+        turn("user", "a" * 10),
+        turn("assistant", "b" * 10),
+        turn("user", "c" * 10),
+        turn("assistant", "d" * 10),
+    ]
     assert trim_history(history, max_chars=15) == []  # only the last assistant message fits
 
 
@@ -72,7 +82,15 @@ class Recorder:
         self.saved: list[dict] = []
 
     async def __call__(
-        self, session_factory, conversation_id, text, status, model=None, meta=None, usage=None, prompt_version=None
+        self,
+        session_factory,
+        conversation_id,
+        text,
+        status,
+        model=None,
+        meta=None,
+        usage=None,
+        prompt_version=None,
     ):
         self.saved.append(
             {
@@ -95,7 +113,9 @@ def recorder(monkeypatch) -> Recorder:
 
 
 def done() -> StreamDone:
-    return StreamDone(model="m", input_tokens=5, output_tokens=2, latency_ms=30, first_piece_ms=10, attempts=1)
+    return StreamDone(
+        model="m", input_tokens=5, output_tokens=2, latency_ms=30, first_piece_ms=10, attempts=1
+    )
 
 
 class Source:
@@ -129,13 +149,20 @@ def run(source: Source):
 async def test_saves_the_full_answer_before_the_done_event_goes_out(recorder):
     generator, first = run(Source([StreamDelta("Par"), StreamDelta("is."), done()]))
     seen = []
-    async for event in save_while_streaming(await first, generator, conversation_id=7, session_factory=None):
+    async for event in save_while_streaming(
+        await first, generator, conversation_id=7, session_factory=None
+    ):
         seen.append(type(event).__name__)
         if isinstance(event, StreamDone):
             assert len(recorder.saved) == 1  # already stored when the client sees "done"
     assert seen == ["StreamDelta", "StreamDelta", "StreamDone"]
     saved = recorder.saved[0]
-    assert (saved["conversation_id"], saved["text"], saved["status"], saved["model"]) == (7, "Paris.", MessageStatus.COMPLETE, "m")
+    assert (saved["conversation_id"], saved["text"], saved["status"], saved["model"]) == (
+        7,
+        "Paris.",
+        MessageStatus.COMPLETE,
+        "m",
+    )
     assert saved["meta"] == {"first_piece_ms": 10, "attempts": 1}
     assert saved["usage"] == CallUsage(provider="", input_tokens=5, output_tokens=2, latency_ms=30)
 
@@ -144,7 +171,9 @@ async def test_saves_the_full_answer_before_the_done_event_goes_out(recorder):
 async def test_a_failure_after_some_text_saves_what_was_written_as_an_error(recorder):
     generator, first = run(Source([StreamDelta("Par")], error=RuntimeError("boom")))
     with pytest.raises(RuntimeError):
-        async for _ in save_while_streaming(await first, generator, conversation_id=7, session_factory=None):
+        async for _ in save_while_streaming(
+            await first, generator, conversation_id=7, session_factory=None
+        ):
             pass
     assert [(s["text"], s["status"]) for s in recorder.saved] == [("Par", MessageStatus.ERROR)]
 
@@ -178,7 +207,9 @@ async def test_the_partial_answer_is_saved_even_when_the_request_is_cancelled(re
 
     async def listen():
         generator, first = run(source)
-        async for _ in save_while_streaming(await first, generator, conversation_id=7, session_factory=None):
+        async for _ in save_while_streaming(
+            await first, generator, conversation_id=7, session_factory=None
+        ):
             got_first.set()
 
     async with anyio.create_task_group() as task_group:

@@ -76,7 +76,9 @@ async def test_sends_system_prompt_then_user_message(chat_client: AsyncClient, f
 
 
 @pytest.mark.anyio
-async def test_message_is_trimmed_before_it_reaches_the_llm(chat_client: AsyncClient, fake_llm: FakeLLM):
+async def test_message_is_trimmed_before_it_reaches_the_llm(
+    chat_client: AsyncClient, fake_llm: FakeLLM
+):
     await chat_client.post(URL, json={"message": "   hello \n"})
     assert fake_llm.calls[0][-1]["content"] == "hello"
 
@@ -116,7 +118,9 @@ async def test_invalid_bodies_are_rejected_before_calling_the_llm(
 
 
 @pytest.mark.anyio
-async def test_message_must_be_in_the_json_body_not_the_query_string(chat_client: AsyncClient, fake_llm: FakeLLM):
+async def test_message_must_be_in_the_json_body_not_the_query_string(
+    chat_client: AsyncClient, fake_llm: FakeLLM
+):
     response = await chat_client.post(f"{URL}?message=hi")
     assert response.status_code == 422
     assert fake_llm.calls == []
@@ -144,7 +148,9 @@ async def test_llm_failures_become_clear_errors_without_leaking_details(
 
 
 @pytest.mark.anyio
-async def test_rate_limited_response_tells_the_client_when_to_retry(chat_client: AsyncClient, fake_llm: FakeLLM):
+async def test_rate_limited_response_tells_the_client_when_to_retry(
+    chat_client: AsyncClient, fake_llm: FakeLLM
+):
     fake_llm.error = LLMRateLimitError("provider 429", retry_after=2.2)
     response = await chat_client.post(URL, json={"message": "hi"})
     assert response.headers["retry-after"] == "3"

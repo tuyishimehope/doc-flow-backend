@@ -8,8 +8,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-redis_client = Redis.from_url(
-    settings.broker_host, socket_connect_timeout=2, socket_timeout=2)
+redis_client = Redis.from_url(settings.broker_host, socket_connect_timeout=2, socket_timeout=2)
 
 
 async def check_rate_limit(key: str, limit: int, window_seconds: int) -> None:

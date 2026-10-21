@@ -102,7 +102,9 @@ async def test_an_unexpected_exception_is_reported_once(sentry, http):
 @pytest.mark.anyio
 async def test_user_text_headers_and_locals_never_leave_the_server(sentry, http):
     await http.post(
-        "/crash", json={"message": SECRET}, headers={"Authorization": "Bearer abc.def.ghi", "Cookie": "session=xyz"}
+        "/crash",
+        json={"message": SECRET},
+        headers={"Authorization": "Bearer abc.def.ghi", "Cookie": "session=xyz"},
     )
     payload = json.dumps(sentry.events[0])
     assert SECRET not in payload  # neither from the request body nor from a local variable
@@ -169,7 +171,11 @@ def test_helpers_are_harmless_when_sentry_is_off(monkeypatch):
 
 def test_scrub_removes_user_data_even_if_an_option_is_changed_later():
     event = {
-        "request": {"data": {"message": SECRET}, "cookies": {"s": "1"}, "headers": {"Authorization": "x", "Accept": "*/*"}},
+        "request": {
+            "data": {"message": SECRET},
+            "cookies": {"s": "1"},
+            "headers": {"Authorization": "x", "Accept": "*/*"},
+        },
         "user": {"id": "7", "email": "a@b.c", "ip_address": "1.2.3.4"},
     }
     cleaned = _scrub(event, None)
@@ -205,11 +211,13 @@ def test_logs_written_through_logging_reach_sentry_with_their_extra_fields(sentr
 def test_an_error_log_is_both_a_log_and_an_event(sentry):
     logging.getLogger("app.test").error("every provider failed")
     assert any(x["body"] == "every provider failed" for x in sent_logs(sentry))
-    assert any(e.get("logentry", {}).get("message") == "every provider failed" for e in sentry.events)
+    assert any(
+        e.get("logentry", {}).get("message") == "every provider failed" for e in sentry.events
+    )
 
 
 def test_uvicorn_access_lines_are_not_sent_because_they_contain_query_strings(sentry):
-    logging.getLogger("uvicorn.access").info('GET /file?token=SECRET HTTP/1.1')
+    logging.getLogger("uvicorn.access").info("GET /file?token=SECRET HTTP/1.1")
     logging.getLogger("app.test").info("marker")
     bodies = [x["body"] for x in sent_logs(sentry)]
     assert "marker" in bodies

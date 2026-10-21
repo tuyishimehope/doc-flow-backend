@@ -1,3 +1,12 @@
 from app.db.base_class import Base  # noqa: F401
-
-from app.models.schema import Document, Processing_Request, Extracted_Result, Processing_Job, User, PasswordResetToken, File, Conversation, Message  # noqa: F401
+from app.models.schema import (  # noqa: F401
+    Conversation,
+    Document,
+    Extracted_Result,
+    File,
+    Message,
+    PasswordResetToken,
+    Processing_Job,
+    Processing_Request,
+    User,
+)

@@ -29,9 +29,7 @@ def _key(user_id: int) -> str:
     return f"chat:streams:{user_id}"
 
 
-async def acquire_stream_slot(
-    user_id: int, *, limit: int, ttl_seconds: int
-) -> str | None:
+async def acquire_stream_slot(user_id: int, *, limit: int, ttl_seconds: int) -> str | None:
     """A slot id when the user may start a stream, or None when `limit` are already running.
 
     Fails open: when Redis is down the stream is allowed, and the returned id is a ticket that
@@ -44,23 +42,17 @@ async def acquire_stream_slot(
         # Add first, count second, all in one transaction: two requests arriving together
         # cannot both see room for the last place.
         async with redis_client.pipeline(transaction=True) as pipe:
-            pipe.zremrangebyscore(
-                key, "-inf", f"({now - ttl_seconds}"
-            )  # throw away dead tickets
+            pipe.zremrangebyscore(key, "-inf", f"({now - ttl_seconds}")  # throw away dead tickets
             pipe.zadd(key, {slot_id: now})
             pipe.zcard(key)
-            pipe.expire(
-                key, ttl_seconds * 2
-            )  # a user who never returns leaves no key behind
+            pipe.expire(key, ttl_seconds * 2)  # a user who never returns leaves no key behind
             _, _, count, _ = await pipe.execute()
         if count > limit:
             await redis_client.zrem(key, slot_id)  # a refused request keeps no ticket
             return None
         return slot_id
     except RedisError:
-        logger.warning(
-            "Stream limit skipped because Redis is unavailable", exc_info=True
-        )
+        logger.warning("Stream limit skipped because Redis is unavailable", exc_info=True)
         return slot_id
 
 
@@ -83,6 +75,4 @@ async def _remove(user_id: int, slot_id: str) -> None:
     try:
         await redis_client.zrem(_key(user_id), slot_id)
     except RedisError:
-        logger.warning(
-            "Could not give a stream slot back; it expires by itself", exc_info=True
-        )
+        logger.warning("Could not give a stream slot back; it expires by itself", exc_info=True)

@@ -18,17 +18,16 @@ os.environ["SENTRY_DSN"] = ""
 # Uploads in tests are not scanned: a CLAMAV_HOST in .env would make them fail with 503 when no scanner runs.
 os.environ["CLAMAV_HOST"] = ""
 
+import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
-from httpx import ASGITransport, AsyncClient
-import pytest
 
 from app.core.config import settings
-from app.main import app
-from app.db.dependencies import get_db_session
 from app.db.base_class import Base
-
+from app.db.dependencies import get_db_session
+from app.main import app
 
 TEST_DATABASE_URL = settings.DATABASE_URL_TEST
 test_database_name = make_url(TEST_DATABASE_URL).database or ""
@@ -38,8 +37,7 @@ test_database_name_is_marked = (
     or test_database_name.endswith("_test")
 )
 if not test_database_name or (
-    not test_database_name_is_marked
-    and test_database_name == settings.DATABASE_NAME
+    not test_database_name_is_marked and test_database_name == settings.DATABASE_NAME
 ):
     raise RuntimeError(
         "Refusing to reset the application database. Set DATABASE_URL_TEST "
@@ -113,7 +111,6 @@ async def client(
     db_session: AsyncSession,
     mocked_minio,
 ) -> AsyncGenerator[AsyncClient]:
-
     async def override_get_db():
         yield db_session
 

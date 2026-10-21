@@ -2,7 +2,6 @@ from minio import Minio
 
 from app.core.config import settings
 
-
 minio_client = Minio(
     endpoint=settings.MINIO_ENDPOINT,
     access_key=settings.MINIO_ACCESS_KEY,

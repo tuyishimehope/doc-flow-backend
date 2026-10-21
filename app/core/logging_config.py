@@ -222,7 +222,9 @@ def shutdown_logging(*, keep_output: bool = True) -> None:
         _listener = None
     dropped = dropped_records()
     if dropped:
-        print(f"{dropped} log records were dropped because the log queue was full", file=sys.stderr)
+        print(
+            f"{dropped} log records were dropped because the log queue was full", file=sys.stderr
+        )
     root_logger = logging.getLogger()
     if _handler is not None:
         root_logger.removeHandler(_handler)

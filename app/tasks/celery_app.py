@@ -7,7 +7,10 @@ from app.core.observability import init_sentry
 configure_logging()
 init_sentry()
 
-celery_app = Celery('docflow', broker=settings.broker_host,
-             backend=settings.broker_backend,
-             include=["app.tasks.document_task"])
+celery_app = Celery(
+    "docflow",
+    broker=settings.broker_host,
+    backend=settings.broker_backend,
+    include=["app.tasks.document_task"],
+)
 celery_app.conf.worker_hijack_root_logger = False

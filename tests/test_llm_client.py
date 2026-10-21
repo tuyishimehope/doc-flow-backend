@@ -142,7 +142,9 @@ async def test_timeouts_are_retried_then_reported_as_timeout():
 
 @pytest.mark.anyio
 async def test_connection_errors_and_5xx_are_retried_then_reported_as_unavailable():
-    fake = FakeOpenAI(APIConnectionError(request=REQUEST), status_error(InternalServerError, 503), completion())
+    fake = FakeOpenAI(
+        APIConnectionError(request=REQUEST), status_error(InternalServerError, 503), completion()
+    )
     result = await make_client(fake).complete(MESSAGES)
     assert result.attempts == 3
 
@@ -192,7 +194,11 @@ async def test_every_call_is_logged_once_without_the_message_text(caplog):
     assert len(records) == 1
     record = records[0]
     assert (record.provider, record.status, record.attempts) == ("openrouter", "ok", 1)
-    assert (record.model, record.input_tokens, record.output_tokens) == ("vendor/real-model", 11, 3)
+    assert (record.model, record.input_tokens, record.output_tokens) == (
+        "vendor/real-model",
+        11,
+        3,
+    )
     assert isinstance(record.latency_ms, int)
     assert all("secret user text" not in str(vars(r)) for r in caplog.records)
 
@@ -218,13 +224,19 @@ async def test_the_answer_says_which_provider_gave_it():
 @pytest.mark.parametrize(
     ("cls", "code", "expected"),
     [
-        (BadRequestError, 400, LLMError),  # Gemini's answer to an invalid key, Groq's to a retired model
+        (
+            BadRequestError,
+            400,
+            LLMError,
+        ),  # Gemini's answer to an invalid key, Groq's to a retired model
         (BadRequestError, 404, LLMError),  # the model was retired
         (BadRequestError, 422, LLMError),
         (AuthenticationError, 401, LLMUnavailableError),  # our key is wrong
     ],
 )
-async def test_other_client_errors_are_not_retried_but_leave_room_for_a_fallback(cls, code, expected):
+async def test_other_client_errors_are_not_retried_but_leave_room_for_a_fallback(
+    cls, code, expected
+):
     fake = FakeOpenAI(status_error(cls, code))
     with pytest.raises(expected):
         await make_client(fake).complete(MESSAGES)

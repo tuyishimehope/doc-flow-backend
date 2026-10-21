@@ -100,7 +100,9 @@ async def add_message(
     )
     db_session.add(message)
     await db_session.execute(
-        update(Conversation).where(Conversation.id == conversation_id).values(updated_at=func.now())
+        update(Conversation)
+        .where(Conversation.id == conversation_id)
+        .values(updated_at=func.now())
     )
     await db_session.flush()
     await db_session.refresh(message)
@@ -130,7 +132,10 @@ async def get_recent_messages(
         return []
     result = await db_session.execute(
         select(Message)
-        .where(Message.conversation_id == conversation_id, Message.status == MessageStatus.COMPLETE.value)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.status == MessageStatus.COMPLETE.value,
+        )
         .order_by(Message.id.desc())
         .limit(limit)
     )
@@ -169,7 +174,9 @@ async def get_usage_per_day(user_id: int, since: datetime, db_session: AsyncSess
     return list(result.all())
 
 
-async def count_answers_by_status(user_id: int, since: datetime, db_session: AsyncSession) -> dict[str, int]:
+async def count_answers_by_status(
+    user_id: int, since: datetime, db_session: AsyncSession
+) -> dict[str, int]:
     result = await db_session.execute(
         select(Message.status, func.count(Message.id))
         .where(*_assistant_messages_since(user_id, since))
@@ -208,14 +215,23 @@ async def get_tokens_used_since(user_id: int, since: datetime, db_session: Async
     )
     return int(result.scalar_one())
 
+
 async def save_transcription(
-    user_id: int, text: str, model: str, audio_bytes: int, latency_ms: int, db_session: AsyncSession
+    user_id: int,
+    text: str,
+    model: str,
+    audio_bytes: int,
+    latency_ms: int,
+    db_session: AsyncSession,
 ) -> Transcription:
-    transcription = Transcription(user_id=user_id, text=text, model=model, audio_bytes=audio_bytes, latency_ms=latency_ms)
+    transcription = Transcription(
+        user_id=user_id, text=text, model=model, audio_bytes=audio_bytes, latency_ms=latency_ms
+    )
     db_session.add(transcription)
     await db_session.commit()
     await db_session.refresh(transcription)
     return transcription
+
 
 async def get_transcription_by_id(
     user_id: int, transcription_id: int, db_session: AsyncSession
