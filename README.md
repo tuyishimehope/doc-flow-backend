@@ -329,6 +329,21 @@ Start the scanner with `docker compose --profile scan up -d clamav`. The first s
 
 On Gemini's free tier Google may use what you send to improve its products, and human reviewers may read it. Send only images you may share with a third party.
 
+### Document questions
+
+Questions about a PDF go to Gemini too, with the same key and base URL. The model reads the whole text, page by page, and must point to the page and a word-for-word quote for its answer. The API then checks every quote against the page text and returns only the citations that really are there (`grounded` is `false` when none is). There are no embeddings yet; a document is limited to `DOCUMENT_QA_MAX_PAGES` pages instead.
+
+```dotenv
+DOCUMENT_MODEL=gemini-3.1-flash-lite
+DOCUMENT_QA_MAX_MB=10
+DOCUMENT_QA_MAX_PAGES=40
+DOCUMENT_QA_TIMEOUT_SECONDS=60
+```
+
+`DOCUMENT_QA_MAX_MB` is at most 14 and `DOCUMENT_QA_TIMEOUT_SECONDS` at most 120. A PDF that is encrypted, damaged or has no text (a scan) is refused with 422. Uploads get the same checks and the same optional virus scan as images.
+
+What is kept depends on the endpoint. `POST /api/v1/chat/document` keeps only the question, the answer, its checked citations and the token counts; the PDF and its text are dropped. `POST /api/v1/documents/qa` keeps the PDF in object storage and its text, one row per page, so it can be asked about again; deleting the document deletes both. Neither the questions, the answers, the page text nor the file name are logged. The text is sent to Google, so on the free tier send only PDFs you may share with a third party.
+
 ## Usage
 
 The examples below use the sample invoice at `tests/assets/sample-pdf-invoice.pdf`.
@@ -434,6 +449,41 @@ curl -X POST http://localhost:8000/api/v1/chat/image \
 
 The question and the answer are saved as a new conversation (see `GET /api/v1/chat/conversations/7`), and their tokens count towards the daily budget and `/api/v1/chat/stats`. Each question is about one image; to ask about the image again, send it again.
 
+### Ask a question about a PDF
+
+One question about one file, nothing kept but the answer:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat/document \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@contract.pdf;type=application/pdf' \
+  -F 'question=How long is the notice period?'
+# {"conversation_id":8,"answer":"30 days.","found":true,"grounded":true,"citations":[{"page":4,"quote":"The notice period is 30 days."}],"pages":12,"model":"gemini-3.1-flash-lite","input_tokens":5400,"output_tokens":40}
+```
+
+To ask several questions without uploading again, store the PDF once, then ask by document id. Send the `conversation_id` of an earlier answer to ask a follow-up; the last few questions and answers (the answer text only) go to the model together with the pages. Leave it out to start a new conversation about the same document.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/documents/qa \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'file=@contract.pdf;type=application/pdf'
+# {"document_id":5,"file_id":9,"name":"contract.pdf","pages":12}
+
+curl -X POST http://localhost:8000/api/v1/documents/5/ask \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"question":"How long is the notice period?"}'
+# same body as /chat/document
+
+curl -X POST http://localhost:8000/api/v1/documents/5/ask \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"question":"And who pays during it?","conversation_id":8}'
+
+curl http://localhost:8000/api/v1/documents/5/file \
+  -H "Authorization: Bearer $TOKEN" --output contract.pdf   # the original, for a viewer
+```
+
+A cited `page` is the number a PDF viewer shows, starting at 1. `GET /api/v1/chat/conversations/8` returns each answer with its `citations` and `grounded`, and the conversation's `document_id`. A document uploaded with `POST /api/v1/documents` has no stored pages and cannot be asked about (409); upload it again with `/documents/qa`. Deleting a conversation keeps the document, and deleting a document keeps the conversations that were about it, but new questions about it get 404.
+
 ## API reference
 
 The complete, interactive schema is available at `/docs` while the API is running.
@@ -456,8 +506,11 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | GET | `/api/v1/documents/{id}` | Yes | Get document metadata |
 | PATCH | `/api/v1/documents/{id}` | Yes | Rename and/or archive: `{"name": "..."}`, `{"status": "ARCHIVED"}` or `{"status": "ACTIVE"}` |
 | POST | `/api/v1/documents/{id}/process` | Yes | Process an uploaded document again: `{"processing_type": "...", "instructions": "..."}` |
-| DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document and remove its stored file |
+| DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document, remove its stored file and delete its stored page text |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
+| POST | `/api/v1/documents/qa` | Yes | Store a PDF for questions: multipart field `file` (a `.pdf` of at most `DOCUMENT_QA_MAX_MB` MB and `DOCUMENT_QA_MAX_PAGES` pages). Returns `{"document_id", "file_id", "name", "pages"}`. 413 too big or too many pages, 415 wrong type, 422 empty, encrypted, damaged, scanned or infected, 429 when limited |
+| POST | `/api/v1/documents/{id}/ask` | Yes | Ask a stored PDF: body `{"question": "...", "conversation_id": 8}` (`conversation_id` optional, for a follow-up). Same answer body as `/api/v1/chat/document`. 404 for a document or conversation that is not yours, 409 when the document has no stored pages or the conversation is about another document, 422 bad question, 429 when limited or over the daily token budget, 502/503/504 for provider problems |
+| GET | `/api/v1/documents/{id}/file` | Yes | The original file, owner only (404 otherwise) |
 | GET | `/api/v1/documents/{id}/processing-requests` | Yes | List a document's processing requests, newest first |
 | GET | `/api/v1/files` | Yes | List your files |
 | GET | `/api/v1/files/{id}` | Yes | Download a file |
@@ -475,9 +528,10 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/chat/transcribe` | Yes | Speech to text: multipart field `file` (flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav or webm, at most `TRANSCRIBE_MAX_FILE_MB` MB). Returns `{"id", "text", "model", "created_at"}` and stores the text, not the audio. 413 too big, 415 wrong extension, 422 empty file, 429 when limited, 502/503/504 for provider problems |
 | GET | `/api/v1/chat/transcribe/{id}` | Yes | One of your transcriptions; 404 if it does not exist or is not yours |
 | POST | `/api/v1/chat/image` | Yes | Ask about one image: multipart fields `file` (jpg, jpeg, png or webp, at most `VISION_MAX_IMAGE_MB` MB) and `question` (1-4,000 characters). Returns `{"conversation_id", "answer", "model", "input_tokens", "output_tokens"}` and saves the question and answer, not the image. 413 too big or too many pixels, 415 wrong type or content that does not match, 422 empty or invalid file or bad question, 429 when limited, 502/503/504 for provider problems |
+| POST | `/api/v1/chat/document` | Yes | Ask about one PDF without keeping it: multipart fields `file` (a `.pdf`) and `question` (1-4,000 characters). Returns `{"conversation_id", "answer", "found", "grounded", "citations": [{"page", "quote"}], "pages", "model", "input_tokens", "output_tokens"}`; only citations that were found on the page are returned. Same errors as `/api/v1/documents/qa`, plus 502/503/504 for provider problems |
 | POST | `/api/v1/chat/conversations` | Yes | Start an empty conversation: body `{"title": "..."}` (optional, 1-100 characters; otherwise named after the first message) |
 | GET | `/api/v1/chat/conversations` | Yes | Your conversations, most recently active first, with `skip` and `limit` |
-| GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first (404 if it is not yours) |
+| GET | `/api/v1/chat/conversations/{id}` | Yes | One conversation with all its messages, oldest first, and its `document_id` when it is about a stored PDF; answers about a document carry `citations` and `grounded` (404 if it is not yours) |
 | PATCH | `/api/v1/chat/conversations/{id}` | Yes | Rename: body `{"title": "..."}` |
 | DELETE | `/api/v1/chat/conversations/{id}` | Yes | Delete the conversation and its messages (204) |
 

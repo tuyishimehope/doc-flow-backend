@@ -265,7 +265,7 @@ Your frontend. Steps are small so each can be tried in the browser.
 
 </details>
 
-<details>
+<details open>
 <summary>Part B · Keep the document (when you want a second question without uploading again)</summary>
 
 ## Part B · Keep the document (when you want a second question without uploading again)
@@ -278,6 +278,16 @@ Your frontend. Steps are small so each can be tried in the browser.
 | B4 | Follow-up questions in the same conversation: send the last few questions and answers (without the citation text) plus the pages again | A user asks "and what about the second one?" |
 | B5 | Deleting a document deletes its pages (and later its chunks) and the stored file. Same soft-delete rule as conversations | B1 is done |
 | B6 | Frontend: a document list, open one, ask many questions, the viewer loads from B2 | B2 and B3 are done |
+
+Status (backend finished 2026-10-22; the choice for B1 is in `plans/decisions.md`):
+- [x] B1 `POST /api/v1/documents/qa` stores the PDF (MinIO + `File` + `Document`) and one `document_page` row per page; migration `3a9c5d7e1b24`; all or nothing
+- [x] B2 `GET /api/v1/documents/{id}/file`: the original, owner only (404 for anyone else, a deleted document or a missing object)
+- [x] B3 `POST /api/v1/documents/{id}/ask`: the same answer body as `/chat/document`, pages read from the table
+- [x] B4 follow-ups: `conversation_id` in the body; the last turns go in as plain text, pages again, no citations. `conversation.document_id` links them; reopened conversations show `citations` and `grounded`
+- [x] B5 deleting a document (or its file) deletes its page rows and the stored file; the conversations stay
+- [ ] B6 Frontend (yours, not in this repo): document list from `GET /documents`, upload to `/documents/qa`, ask with `/documents/{id}/ask`, viewer loads `/documents/{id}/file` with the token and opens a blob URL at the cited `page`
+- [ ] Live check (needs your key): store a real PDF, ask two questions and one follow-up, fetch `/file`, delete, ask again (404)
+- [ ] Not tested on Postgres here: the new migration (its SQL was printed and read) and `DocumentPage` writes. Run `alembic upgrade head` on your database and one `POST /documents/qa` before you rely on it
 
 </details>
 
