@@ -302,9 +302,11 @@ Do these in order. Each step still ends with a check.
 
 ### C0 · Measure first
 - [ ] Take a **public** PDF of 60 to 100 pages. Write 15 questions in `evals/` with the page where each answer
-      is, including 3 whose answer is not in the document
+      is, including 3 whose answer is not in the document (format: `evals/documents.example.json`; yours)
 - [ ] Run them through the Part A code with the page cap raised. Write the result here: right answer?
       right page? tokens and seconds per question. This is the baseline Part C must beat.
+      (Tool is ready: `python -m scripts.run_doc_evals --modes pages` with `DOCUMENT_QA_MAX_PAGES=120` on the
+      server. Needs your key and your PDF; nothing is measured yet.)
 
 </details>
 
@@ -312,10 +314,13 @@ Do these in order. Each step still ends with a check.
 <summary>C1 · pgvector</summary>
 
 ### C1 · pgvector
-- [ ] Local: change the `db` image in `docker-compose.yml` to the pgvector build of Postgres 16
-      (`pgvector/pgvector:pg16`; check the tag exists before you change it)
-- [ ] Migration: `CREATE EXTENSION IF NOT EXISTS vector`. Neon supports the extension; enable it there too
-- [ ] Check: `SELECT '[1,2,3]'::vector` works locally and on Neon
+- [x] Local: the `postgres` service in `docker-compose.yml` now uses `pgvector/pgvector:pg16-trixie` (the plain `pg16` tag is on an older Debian than `postgres:16` and gave "collation version mismatch" warnings on an existing volume; the tag exists:
+      checked on Docker Hub 2026-10-22; also `pg16-bookworm`, `pg16-trixie`). Run
+      `docker compose pull postgres && docker compose up -d postgres`; the data volume is kept
+- [x] Migration `8b2e4f6a1c35` (v12): `CREATE EXTENSION IF NOT EXISTS vector`, `document.index_status`, the
+      `document_chunk` table. Up, down and up again checked on Postgres 16 with pgvector 0.6.0. Neon supports
+      the extension; the migration needs a role that may create it (the database owner)
+- [ ] Check (yours): `SELECT '[1,2,3]'::vector` works on your local database after the image change, and on Neon
 
 </details>
 
@@ -328,10 +333,14 @@ Do these in order. Each step still ends with a check.
       `gemini-embedding-2`. Try them and keep the one that works through `AsyncOpenAI`
 - [ ] Write down: vector size, the maximum input (001: 2,048 tokens; 2: 8,192; longer input is cut silently),
       whether you can choose a smaller size, rate limit and price
-- [ ] Two models give vectors that cannot be compared. So every stored vector records its model name, and a
-      model change means embedding everything again.
-- [ ] Choose the size (a smaller size such as 768 saves storage; with `gemini-embedding-001` you must
-      normalize smaller vectors yourself)
+- [x] Two models give vectors that cannot be compared. So every stored vector records its model name, and a
+      model change means embedding everything again. (`document_chunk.embedding_model`; a question only
+      searches vectors of the current `EMBEDDING_MODEL`; after a change, `POST /documents/{id}/index`)
+- [x] Choose the size: 768. `fit_vector` cuts the model's vector to 768 numbers and scales it to length 1 in
+      our code, so it does not depend on the endpoint accepting a `dimensions` field (tested)
+- Not done, needs your key: the first two items above. The client is written for `gemini-embedding-001`
+  with a list of texts per request; if the endpoint refuses a list, set `EMBEDDING_BATCH_SIZE=1`. For
+  `gemini-embedding-2*` the client puts the task into the text, as that model's page describes (untested live)
 
 </details>
 
@@ -339,12 +348,14 @@ Do these in order. Each step still ends with a check.
 <summary>C3 · Chunking (pure function, easy to test)</summary>
 
 ### C3 · Chunking (pure function, easy to test)
-- [ ] `chunk_pages(pages, target_tokens=400, overlap=50) -> list[Chunk(page, position, text)]`
-- [ ] **A chunk never crosses a page**, so every citation has exactly one page. Give that up only if the eval
+- [x] `chunk_pages(pages, target_tokens=400, overlap=50) -> list[Chunk(page, position, text)]`
+      (`app/utils/chunking.py`; a token is 4 characters, there is no tokenizer)
+- [x] **A chunk never crosses a page**, so every citation has exactly one page. Give that up only if the eval
       shows chunks that are too short to answer from
-- [ ] Split by paragraph first, then by sentence if a paragraph is too long; never cut in the middle of a word
-- [ ] Check (tests): no chunk over the limit; every chunk keeps its page; joining the chunks of a page gives
-      back its text (apart from overlap)
+- [x] Split by paragraph first, then by sentence if a paragraph is too long; never cut in the middle of a word
+      (the one exception: a single "word" longer than a whole chunk, such as a long URL)
+- [x] Check (tests): no chunk over the limit; every chunk keeps its page; joining the chunks of a page gives
+      back its text (apart from overlap). `tests/test_chunking.py`, 21 tests
 
 </details>
 
@@ -352,11 +363,14 @@ Do these in order. Each step still ends with a check.
 <summary>C4 · Store the chunks</summary>
 
 ### C4 · Store the chunks
-- [ ] Table `document_chunk(id, document_id, user_id, page, position, text, embedding vector(N), embedding_model)`
+- [x] Table `document_chunk(id, document_id, user_id, page, position, text, embedding vector(768), embedding_model)`
       and a migration. `user_id` is on the row so retrieval can filter without a join
-- [ ] Embed in batches (not one call per chunk), inside the Celery worker, with a document status
-      `PROCESSING` → `READY` / `FAILED`. Log chunk count, tokens, time
-- [ ] Check: a 60-page PDF becomes about as many chunks as you expected, all with a vector of the right size
+- [x] Embed in batches (not one call per chunk), inside the Celery worker (`index_document_task`, retries on
+      provider errors), with `document.index_status` `NONE` → `PROCESSING` → `READY` / `FAILED` (a column of its
+      own, not new values of `Document_Status`: see `plans/decisions.md`). Logs chunk count, tokens, time
+- [~] Check: a 60-page PDF becomes about as many chunks as you expected, all with a vector of the right size.
+      Tested with synthetic pages (60 pages of about 3,000 characters give 2 to 4 chunks a page, every vector
+      has 768 numbers); a real PDF through the real embedding model is yours
 
 </details>
 
@@ -364,11 +378,17 @@ Do these in order. Each step still ends with a check.
 <summary>C5 · Retrieve</summary>
 
 ### C5 · Retrieve
-- [ ] Embed the question and take the 5 nearest chunks by cosine distance (`<=>`),
-      `WHERE user_id = :me AND document_id = :doc`
-- [ ] No index yet: an exact scan is fine at this size. Run `EXPLAIN` once and write the time here
-- [ ] Check (test, the important one): user B cannot get a single chunk of user A's document, even when asking
-      the exact sentence
+- [x] Embed the question and take the 5 nearest chunks by cosine distance (`<=>`),
+      `WHERE user_id = :me AND document_id = :doc` (also `AND embedding_model = :current`)
+- [x] No index yet: an exact scan is fine at this size. `EXPLAIN ANALYZE`, 2026-10-22, Postgres 16 + pgvector
+      0.6.0 on the build machine, 40,000 random 768-number vectors in the table (40 documents of 1,000 chunks,
+      more than three times what one 100-page PDF gives): the plan is a bitmap scan of
+      `ix_document_chunk_user_id_document_id` (1,000 rows of that one document) and a top-5 sort; 9 to 11 ms
+      execution, three runs, warm cache, no network. Neon adds the network round trip. D3 (HNSW) is not needed
+- [x] Check (test, the important one): user B cannot get a single chunk of user A's document, even when asking
+      the exact sentence (`test_another_user_gets_no_chunk_of_my_document_even_with_the_exact_sentence`; it
+      fails when the `user_id` filter is removed). Also through the API: modes `auto`, `chunks` and `pages`
+      all give 404 to another user, and nothing is embedded or sent to the model
 
 </details>
 
@@ -376,9 +396,11 @@ Do these in order. Each step still ends with a check.
 <summary>C6 · Answer from the chunks</summary>
 
 ### C6 · Answer from the chunks
-- [ ] Same prompt, same JSON, same `verify_citations`, but the prompt holds `<chunk id="12" page="4">...</chunk>`
-      and the quote is checked against the **retrieved chunk text**
-- [ ] Log (ids and scores only, never text): which chunks were retrieved and their distance
+- [x] Same JSON and the same citation check, but the prompt (`document_rag_v1`) holds
+      `<chunk id="12" page="4">...</chunk>` and the quote is checked against the **retrieved chunk text**
+      (a quote from a chunk the model was not given is dropped, even when it is a real sentence of the PDF)
+- [x] Log (ids and scores only, never text): "Chunks retrieved" has `chunk_ids` and `distances`; the saved
+      assistant message keeps `retrieval: [{id, page, distance}]`, not the text
 
 </details>
 
@@ -388,8 +410,26 @@ Do these in order. Each step still ends with a check.
 ### C7 · Compare and decide
 - [ ] Run the C0 questions again. Compare answers, pages, tokens, seconds with the baseline
 - [ ] Keep Part C only if tokens per question dropped a lot and answers are not worse. Write the numbers here.
+      `scripts/run_doc_evals.py` prints the table and applies this rule (tokens down at least 50%, score not
+      worse); the numbers are for you to run and write here
 
 </details>
+
+Status (built 2026-10-22; decisions in `plans/decisions.md`):
+- [x] Everything that can be checked without your key: chunking, the embedding client against a fake provider,
+      the table, indexing, retrieval, the owner filter, the `mode` parameter, the delete hooks, the eval runner
+      (`tests/test_chunking.py`, `test_embedding.py`, `test_retrieval.py`, `test_run_doc_evals.py`, run on a real
+      Postgres with pgvector; the important checks were broken on purpose to see the tests fail)
+- Retrieval is **off by default** (`DOCUMENT_RETRIEVAL_ENABLED=false`): nothing is embedded and `auto` reads
+  the whole text, so nothing changes for you until you switch it on
+- [ ] Live embedding check (C2): one paragraph and one question through the real endpoint with your key. Never
+      run: whether a list of texts per request is accepted, the real vector size, the rate limit, the price
+- [ ] The baseline and the comparison (C0 and C7): need your key and a real 60 to 100 page PDF
+- [ ] Run `alembic upgrade head` on your database (needs the pgvector image, or Neon), then store a PDF with
+      the flag on and the worker running, and watch `index_status` become `READY`
+- [ ] Not checked here: the compose change itself (there is no Docker on the build machine; the checks ran on a
+      plain Postgres 16 with the pgvector 0.6.0 package, and the image you pull has a newer pgvector)
+- [ ] B6 and the frontend for `index_status` and `mode` (yours)
 
 </details>
 

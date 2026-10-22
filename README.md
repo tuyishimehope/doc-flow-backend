@@ -331,7 +331,7 @@ On Gemini's free tier Google may use what you send to improve its products, and 
 
 ### Document questions
 
-Questions about a PDF go to Gemini too, with the same key and base URL. The model reads the whole text, page by page, and must point to the page and a word-for-word quote for its answer. The API then checks every quote against the page text and returns only the citations that really are there (`grounded` is `false` when none is). There are no embeddings yet; a document is limited to `DOCUMENT_QA_MAX_PAGES` pages instead.
+Questions about a PDF go to Gemini too, with the same key and base URL. The model reads the whole text, page by page, and must point to the page and a word-for-word quote for its answer. The API then checks every quote against the page text and returns only the citations that really are there (`grounded` is `false` when none is). A document is limited to `DOCUMENT_QA_MAX_PAGES` pages, because the model reads all of it for every question. For longer documents, switch on [retrieval](#long-documents-retrieval-with-pgvector).
 
 ```dotenv
 DOCUMENT_MODEL=gemini-3.1-flash-lite
@@ -343,6 +343,34 @@ DOCUMENT_QA_TIMEOUT_SECONDS=60
 `DOCUMENT_QA_MAX_MB` is at most 14 and `DOCUMENT_QA_TIMEOUT_SECONDS` at most 120. A PDF that is encrypted, damaged or has no text (a scan) is refused with 422. Uploads get the same checks and the same optional virus scan as images.
 
 What is kept depends on the endpoint. `POST /api/v1/chat/document` keeps only the question, the answer, its checked citations and the token counts; the PDF and its text are dropped. `POST /api/v1/documents/qa` keeps the PDF in object storage and its text, one row per page, so it can be asked about again; deleting the document deletes both. Neither the questions, the answers, the page text nor the file name are logged. The text is sent to Google, so on the free tier send only PDFs you may share with a third party.
+
+#### Long documents: retrieval with pgvector
+
+With `DOCUMENT_RETRIEVAL_ENABLED=true` a stored PDF is also cut into chunks of about 400 tokens (a chunk never crosses a page) and each chunk is turned into a vector by Gemini's embedding model. A question is turned into a vector the same way, and only the `DOCUMENT_RETRIEVAL_TOP_K` nearest chunks of that document are sent to the model. The citation check is the same, but the quote must now be in a chunk the model was given. This makes a long PDF affordable (`DOCUMENT_RAG_MAX_PAGES` instead of `DOCUMENT_QA_MAX_PAGES`), at the risk that the right chunk is not among the nearest. Measure that before relying on it (see below).
+
+```dotenv
+DOCUMENT_RETRIEVAL_ENABLED=false
+DOCUMENT_RETRIEVAL_TOP_K=5
+DOCUMENT_RAG_MAX_PAGES=300
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_BATCH_SIZE=50
+EMBEDDING_TIMEOUT_SECONDS=60
+```
+
+- **Needs pgvector.** The migration runs `CREATE EXTENSION IF NOT EXISTS vector`. `docker-compose.yml` now uses the `pgvector/pgvector:pg16-trixie` image (Postgres 16 on the same Debian as `postgres:16`, so your data volume keeps working without collation warnings: `docker compose pull postgres && docker compose up -d postgres`; do not use the plain `pg16` tag, it is on an older Debian and warns "collation version mismatch" on every connection). On Neon the extension is available; run `alembic upgrade head` as the database owner. The test database needs it too.
+- **Needs the worker.** Indexing runs in Celery (`index_document_task`). Storing a PDF queues it; `index_status` of the document goes `NONE`, `PROCESSING`, `READY` or `FAILED` (`GET /api/v1/documents/{id}`). A document stored earlier, or one that failed, is indexed with `POST /api/v1/documents/{id}/index`.
+- **`mode` on `/ask`.** `auto` (default) reads chunks when retrieval is on and the document is `READY`, and the whole text otherwise; `pages` and `chunks` force one way, which is how the two are compared. The answer says which one it used in `mode`. A document longer than `DOCUMENT_QA_MAX_PAGES` can only be asked in `chunks` mode, so it gets 409 until it is `READY`.
+- **Vectors belong to a model.** The model name is stored with every vector, and a question only searches vectors of the current `EMBEDDING_MODEL`. After changing the model, run `POST /{id}/index` for each document (until then, questions get 409).
+- **Privacy.** Chunk text and questions are sent to Google to be embedded, like the pages are for answers. Logs and saved messages carry chunk ids, pages and distances, never the text. Every chunk row has the owner's `user_id`, and retrieval filters on it, so one user cannot get a chunk of another user's document.
+
+Compare reading the whole document with retrieval on a PDF of your own (60 to 100 pages) and 15 questions you wrote from it, three of them unanswerable. The runner asks every question in both modes, scores the answer, the cited page and the refusals, and prints tokens and seconds per question (`evals/documents.example.json` shows the format, `evals/README.md` explains it):
+
+```bash
+# server: DOCUMENT_QA_MAX_PAGES=120 DOCUMENT_RETRIEVAL_ENABLED=true, worker running
+python -m scripts.run_doc_evals --email you@example.com --password '...' --cases evals/documents.json
+```
+
+It makes questions x 2 real model calls and embeds the document once.
 
 ## Usage
 
@@ -482,6 +510,8 @@ curl http://localhost:8000/api/v1/documents/5/file \
   -H "Authorization: Bearer $TOKEN" --output contract.pdf   # the original, for a viewer
 ```
 
+With retrieval switched on, add `"mode": "chunks"` (or leave `auto`) once `GET /api/v1/documents/5` shows `"index_status": "READY"`; start indexing by hand with `POST /api/v1/documents/5/index` (202).
+
 A cited `page` is the number a PDF viewer shows, starting at 1. `GET /api/v1/chat/conversations/8` returns each answer with its `citations` and `grounded`, and the conversation's `document_id`. A document uploaded with `POST /api/v1/documents` has no stored pages and cannot be asked about (409); upload it again with `/documents/qa`. Deleting a conversation keeps the document, and deleting a document keeps the conversations that were about it, but new questions about it get 404.
 
 ## API reference
@@ -508,8 +538,9 @@ The complete, interactive schema is available at `/docs` while the API is runnin
 | POST | `/api/v1/documents/{id}/process` | Yes | Process an uploaded document again: `{"processing_type": "...", "instructions": "..."}` |
 | DELETE | `/api/v1/documents/{id}` | Yes | Soft-delete a document, remove its stored file and delete its stored page text |
 | GET | `/api/v1/documents/{id}/jobs` | Yes | List processing attempts |
-| POST | `/api/v1/documents/qa` | Yes | Store a PDF for questions: multipart field `file` (a `.pdf` of at most `DOCUMENT_QA_MAX_MB` MB and `DOCUMENT_QA_MAX_PAGES` pages). Returns `{"document_id", "file_id", "name", "pages"}`. 413 too big or too many pages, 415 wrong type, 422 empty, encrypted, damaged, scanned or infected, 429 when limited |
-| POST | `/api/v1/documents/{id}/ask` | Yes | Ask a stored PDF: body `{"question": "...", "conversation_id": 8}` (`conversation_id` optional, for a follow-up). Same answer body as `/api/v1/chat/document`. 404 for a document or conversation that is not yours, 409 when the document has no stored pages or the conversation is about another document, 422 bad question, 429 when limited or over the daily token budget, 502/503/504 for provider problems |
+| POST | `/api/v1/documents/qa` | Yes | Store a PDF for questions: multipart field `file` (a `.pdf` of at most `DOCUMENT_QA_MAX_MB` MB and `DOCUMENT_QA_MAX_PAGES` pages). Returns `{"document_id", "file_id", "name", "pages", "index_status"}`; with `DOCUMENT_RETRIEVAL_ENABLED` the page limit is `DOCUMENT_RAG_MAX_PAGES` and indexing is queued. 413 too big or too many pages, 415 wrong type, 422 empty, encrypted, damaged, scanned or infected, 429 when limited |
+| POST | `/api/v1/documents/{id}/ask` | Yes | Ask a stored PDF: body `{"question": "...", "conversation_id": 8, "mode": "auto"}` (`conversation_id` optional, for a follow-up; `mode` is `auto`, `pages` or `chunks`). Same answer body as `/api/v1/chat/document`, plus `mode` (how it was answered). 409 also when `chunks` was asked for and the document is not `READY`, when it is too long to read whole and not `READY`, or when it was indexed with another `EMBEDDING_MODEL`. 404 for a document or conversation that is not yours, 409 when the document has no stored pages or the conversation is about another document, 422 bad question, 429 when limited or over the daily token budget, 502/503/504 for provider problems |
+| POST | `/api/v1/documents/{id}/index` | Yes | Split a stored PDF into chunks and embed them in the background (202, returns `{"document_id", "index_status"}`). 404 not yours, 409 when retrieval is off, nothing is stored or it is already `PROCESSING` |
 | GET | `/api/v1/documents/{id}/file` | Yes | The original file, owner only (404 otherwise) |
 | GET | `/api/v1/documents/{id}/processing-requests` | Yes | List a document's processing requests, newest first |
 | GET | `/api/v1/files` | Yes | List your files |
@@ -581,8 +612,8 @@ app/
 ├── tasks/                  # Celery configuration and tasks
 └── utils/                  # Text extraction and email helpers
 migrations/                 # Alembic migrations
-evals/                      # Chat test questions (chat.json) and saved eval runs
-scripts/                    # Tools you run by hand, e.g. run_evals.py (not part of the server)
+evals/                      # Chat test questions (chat.json), a document eval example, saved runs
+scripts/                    # Tools you run by hand: run_evals.py, run_doc_evals.py (not part of the server)
 templates/email/            # Password-reset email template
 tests/                      # API tests and sample assets
 ```
