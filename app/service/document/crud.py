@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.schema import Document, Extracted_Result, File, Processing_Job, Processing_Request
 from app.service.auth.auth import CurrentUser
+from app.service.document.pages import delete_pages
 from app.service.document.schema import (
     Document_Status,
     DocumentStats,
@@ -182,6 +183,8 @@ async def delete_document_by_id(id: int, current_user: CurrentUser, db_session: 
     file_record = await db_session.get(File, document.file_id)
     if file_record is not None:
         file_record.deleted_at = file_record.deleted_at or deleted_at
+    # The page text is a copy of the file's content: delete it, do not just hide it.
+    await delete_pages(document.id, db_session)
 
     try:
         await db_session.commit()

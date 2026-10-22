@@ -1,4 +1,5 @@
 import datetime
+import io
 import logging
 
 from fastapi import UploadFile
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.core.minio import minio_client
 from app.models.schema import Document
 from app.service.auth.auth import CurrentUser
+from app.service.document.pages import delete_pages
 from app.service.document.schema import Document_Status
 from app.service.file.crud import get_all_files_by_user, get_file_id
 
@@ -34,6 +36,18 @@ async def post_file(file: UploadFile, file_id: str):
     )
 
     return {"file_id": file_id}
+
+
+async def post_bytes(content: bytes, file_id: str, content_type: str) -> None:
+    """Like ``post_file``, for bytes that are already in memory."""
+    await run_in_threadpool(
+        minio_client.put_object,
+        bucket_name=BUCKET_NAME,
+        object_name=file_id,
+        data=io.BytesIO(content),
+        length=len(content),
+        content_type=content_type,
+    )
 
 
 def get_file(file_id: int):
@@ -89,6 +103,7 @@ async def delete_file_by_id(id: int, current_user: CurrentUser, db_session: Asyn
     if document is not None:
         document.status = Document_Status.DELETED
         document.deleted_at = document.deleted_at or deleted_at
+        await delete_pages(document.id, db_session)
 
     try:
         await db_session.commit()

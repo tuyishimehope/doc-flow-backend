@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     and_,
     func,
 )
@@ -64,6 +65,27 @@ class Document(Base):
     def is_active(cls):
         """SQL filter for documents that have not been soft-deleted."""
         return and_(cls.deleted_at.is_(None), cls.status != Document_Status.DELETED)
+
+
+class DocumentPage(Base):
+    """The text of one page of a PDF kept for questions. Page numbers start at 1.
+
+    A copy of the file's content, so it is deleted (not just hidden) with the document.
+    """
+
+    __tablename__ = "document_page"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("document.id", ondelete="CASCADE"), nullable=False
+    )
+    page: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # The unique pair also serves "all pages of one document, in order".
+    __table_args__ = (
+        UniqueConstraint("document_id", "page", name="uq_document_page_document_id_page"),
+    )
 
 
 class File(Base):
@@ -228,6 +250,10 @@ class Conversation(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Set when the conversation is about one stored PDF (POST /documents/{id}/ask).
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("document.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -281,6 +307,15 @@ class Message(Base):
     )
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+
+    @property
+    def citations(self) -> Optional[list]:
+        """The checked citations of a document answer (None for every other message)."""
+        return (self.meta or {}).get("citations")
+
+    @property
+    def grounded(self) -> Optional[bool]:
+        return (self.meta or {}).get("grounded")
 
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant')", name="ck_message_role"),
