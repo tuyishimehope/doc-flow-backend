@@ -11,6 +11,6 @@ celery_app = Celery(
     "docflow",
     broker=settings.broker_host,
     backend=settings.broker_backend,
-    include=["app.tasks.document_task"],
+    include=["app.tasks.document_task", "app.tasks.index_task"],
 )
 celery_app.conf.worker_hijack_root_logger = False

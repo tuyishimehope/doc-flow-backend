@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.schema import Document, File
 from app.service.document.pages import save_pages
+from app.service.document.schema import Index_Status
 from app.service.file.file import delete_file, post_bytes
 from app.utils.pdf import Page
 from app.utils.upload import CheckedUpload
@@ -60,3 +61,19 @@ async def store_pdf(
         extra={"document_id": document.id, "page_count": len(pages), "user_id": user_id},
     )
     return document
+
+
+async def queue_indexing(document: Document, db_session: AsyncSession) -> None:
+    """Mark the document PROCESSING and hand it to the worker. If the queue is down the document
+    is marked FAILED (and can be started again); asking it still works while it is short enough
+    to be read whole."""
+    from app.tasks.index_task import index_document_task
+
+    document.index_status = Index_Status.PROCESSING.value
+    await db_session.commit()
+    try:
+        index_document_task.delay(document.id)  # type: ignore[attr-defined]  # a Celery task
+    except Exception:
+        logger.exception("Could not queue indexing", extra={"document_id": document.id})
+        document.index_status = Index_Status.FAILED.value
+        await db_session.commit()

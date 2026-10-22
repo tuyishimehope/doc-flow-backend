@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     CheckConstraint,
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base_class import Base
 from app.service.document.schema import (
     Document_Status,
+    Index_Status,
     Processing_Job_Status,
     Processing_status,
     Processing_Type,
@@ -34,6 +36,14 @@ class Document(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[Document_Status] = mapped_column(default=Document_Status.ACTIVE, index=True)
+    # Whether its chunks are embedded (part C). Kept apart from ``status`` on purpose: that one
+    # is the document's life (active, archived, deleted), this one is background work.
+    index_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=Index_Status.NONE.value,
+        server_default=Index_Status.NONE.value,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -85,6 +95,39 @@ class DocumentPage(Base):
     # The unique pair also serves "all pages of one document, in order".
     __table_args__ = (
         UniqueConstraint("document_id", "page", name="uq_document_page_document_id_page"),
+    )
+
+
+# The size of a stored vector. The embedding client cuts every vector to this size; changing it
+# needs a migration and indexing every document again.
+EMBEDDING_DIMENSIONS = 768
+
+
+class DocumentChunk(Base):
+    """A piece of one page with its embedding, for finding the text that answers a question.
+
+    ``user_id`` is on the row so that retrieval can filter by owner without a join, and so a
+    query that forgets the document still cannot cross users.
+    """
+
+    __tablename__ = "document_chunk"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("document.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
+    page: Mapped[int] = mapped_column(Integer, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)  # order in the document
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS), nullable=False)
+    # Vectors of different models cannot be compared, so a query only looks at its own model.
+    embedding_model: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # The unique pair also serves "all chunks of one document, in order".
+    __table_args__ = (
+        UniqueConstraint("document_id", "position", name="uq_document_chunk_document_id_position"),
+        Index("ix_document_chunk_user_id_document_id", "user_id", "document_id"),
     )
 
 

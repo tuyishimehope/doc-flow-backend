@@ -1,6 +1,6 @@
 """The text of a stored PDF, page by page (table ``document_page``)."""
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schema import DocumentPage
@@ -34,3 +34,12 @@ async def get_pages(document_id: int, db_session: AsyncSession) -> list[Page]:
 async def delete_pages(document_id: int, db_session: AsyncSession) -> None:
     """Remove the pages in the open transaction (nothing happens if there are none)."""
     await db_session.execute(delete(DocumentPage).where(DocumentPage.document_id == document_id))
+
+
+async def count_pages(document_id: int, db_session: AsyncSession) -> int:
+    result = await db_session.execute(
+        select(func.count())
+        .select_from(DocumentPage)
+        .where(DocumentPage.document_id == document_id)
+    )
+    return int(result.scalar_one())

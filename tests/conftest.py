@@ -21,6 +21,7 @@ os.environ["CLAMAV_HOST"] = ""
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -66,6 +67,9 @@ def test_engine():
 @pytest.fixture(scope="session")
 async def setup_database(test_engine):
     async with test_engine.begin() as conn:
+        # The chunk table has a vector column: the test database needs pgvector, like the
+        # real one (docker compose uses the pgvector/pgvector image).
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 

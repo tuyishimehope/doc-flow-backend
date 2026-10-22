@@ -26,6 +26,15 @@ class Document_Status(str, Enum):
     DELETED = "DELETED"
 
 
+class Index_Status(str, Enum):
+    """Whether a stored PDF has been split into chunks and embedded (plan_4, part C)."""
+
+    NONE = "NONE"  # never indexed (retrieval was off, or the PDF is older than part C)
+    PROCESSING = "PROCESSING"
+    READY = "READY"
+    FAILED = "FAILED"
+
+
 class Processing_Job_Status(str, Enum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
@@ -41,6 +50,7 @@ class DocumentResponse(BaseModel):
     id: int
     name: str
     status: Document_Status
+    index_status: str = Index_Status.NONE.value
     file_id: int
     user_id: int
     created_at: datetime

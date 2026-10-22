@@ -35,7 +35,10 @@ services:
       - .:/app
 
   postgres:
-    image: postgres:16
+    # Postgres 16 with the pgvector extension (document chunks, plan_4 part C). The -trixie tag is
+    # on the same Debian as postgres:16, so a postgres_data volume made by that image keeps its
+    # collation version (the plain pg16 tag is on the older bookworm and warns on every connection).
+    image: pgvector/pgvector:pg16-trixie
     container_name: docflow-postgres
     restart: unless-stopped
     environment:
@@ -82,7 +85,8 @@ services:
   # ClamAV's docs ask for at least 3 GiB of memory (4 preferred), and the first start downloads the
   # signature database, which takes a few minutes. Then set CLAMAV_HOST=clamav in .env.
   clamav:
-    image: clamav/clamav:1.4
+    # The -debian tag has arm64 builds (Apple Silicon); plain 1.4 is amd64 only.
+    image: clamav/clamav:1.4-debian
     container_name: docflow-clamav
     profiles: ["scan"]
     restart: unless-stopped

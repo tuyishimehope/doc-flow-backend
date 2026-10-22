@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.minio import minio_client
 from app.models.schema import Document
 from app.service.auth.auth import CurrentUser
+from app.service.document.chunks import delete_chunks
 from app.service.document.pages import delete_pages
 from app.service.document.schema import Document_Status
 from app.service.file.crud import get_all_files_by_user, get_file_id
@@ -104,6 +105,7 @@ async def delete_file_by_id(id: int, current_user: CurrentUser, db_session: Asyn
         document.status = Document_Status.DELETED
         document.deleted_at = document.deleted_at or deleted_at
         await delete_pages(document.id, db_session)
+        await delete_chunks(document.id, db_session)
 
     try:
         await db_session.commit()
