@@ -147,10 +147,11 @@ class DocumentAnswerResponse(BaseModel):
     found: bool  # the model says the answer is in the document
     grounded: bool  # found, and at least one citation was checked against the page text
     citations: list[CitationResponse]  # only citations that passed the check
-    pages: int
+    pages: int  # pages in the whole document
     model: str
     input_tokens: int | None
     output_tokens: int | None
+    mode: str = "pages"  # "pages": the model read the whole text; "chunks": only retrieved parts
 
 
 class ImageAnswerResponse(BaseModel):

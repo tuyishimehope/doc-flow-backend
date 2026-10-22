@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.models.schema import Conversation, Document, DocumentPage, File, Message
-from app.service.document.pages import get_pages, save_pages
+from app.service.document.pages import delete_pages, get_pages, save_pages
 from app.service.llm_client import document_qa
 from app.service.llm_client.document_qa import Citation, DocAnswer
 from app.utils.pdf import Page
@@ -210,10 +210,11 @@ async def test_a_nul_character_in_page_text_is_dropped_because_postgres_refuses_
     client, auth_headers, db_session
 ):
     document_id = await stored_id(client, auth_headers)
+    await delete_pages(document_id, db_session)
 
-    await save_pages(document_id + 100, [Page(1, "pay\x00ment due")], db_session)
+    await save_pages(document_id, [Page(1, "pay\x00ment due")], db_session)
 
-    assert [p.text for p in await get_pages(document_id + 100, db_session)] == ["payment due"]
+    assert [p.text for p in await get_pages(document_id, db_session)] == ["payment due"]
 
 
 # --- B2: get the original file back ---------------------------------------------------------
@@ -289,6 +290,7 @@ async def test_asking_answers_from_the_stored_pages_with_checked_citations(
         "model": "gemini-test",
         "input_tokens": 900,
         "output_tokens": 40,
+        "mode": "pages",
     }
     (call,) = gemini.calls
     system, user = call["messages"]
@@ -620,4 +622,4 @@ def test_the_migrations_form_one_chain_ending_in_the_page_table():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["3a9c5d7e1b24"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["8b2e4f6a1c35"]

@@ -22,15 +22,20 @@ from app.api.v1.chat.router import (
     to_http_error,
 )
 from app.api.v1.chat.schema import CitationResponse, DocumentAnswerResponse
-from app.api.v1.document.qa_schema import AskDocumentRequest, StoredDocumentResponse
+from app.api.v1.document.qa_schema import (
+    AskDocumentRequest,
+    IndexResponse,
+    StoredDocumentResponse,
+)
 from app.core.config import settings
 from app.db.dependencies import get_db_session
 from app.service.auth.auth import CurrentUser
-from app.service.chat.chat import ask_stored_document
+from app.service.chat.chat import RetrievalUnavailableError, ask_stored_document
 from app.service.chat.crud import get_conversation
 from app.service.document.crud import get_document_by_id
-from app.service.document.pages import get_pages
-from app.service.document.qa import store_pdf
+from app.service.document.pages import count_pages, get_pages
+from app.service.document.qa import queue_indexing, store_pdf
+from app.service.document.schema import Index_Status
 from app.service.file.file import get_file_by_id
 from app.service.llm_client.llm_client import LLMError
 from app.utils.http import attachment_disposition
@@ -48,6 +53,14 @@ NOT_FOUND = "Document not found"
 NOT_PREPARED = (
     "This document was not stored for questions. "
     "Upload the PDF again with POST /api/v1/documents/qa."
+)
+
+NOT_INDEXED_FOR_MODEL = (
+    "This document was indexed with another embedding model. "
+    "Index it again with POST /api/v1/documents/{id}/index."
+)
+LONG_DOCUMENT = (
+    "This document has {pages} pages, more than the {limit} that can be read whole. {state}"
 )
 
 STORE_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -95,19 +108,26 @@ async def store_document_for_questions(
     try:
         upload = await read_checked_upload(file, pdf_policy())
         await scan_upload(upload.content)
-        pages = await asyncio.to_thread(
-            extract_pages, upload.content, settings.DOCUMENT_QA_MAX_PAGES
+        # With retrieval a long PDF is fine: only the nearest chunks go to the model.
+        max_pages = (
+            settings.DOCUMENT_RAG_MAX_PAGES
+            if settings.DOCUMENT_RETRIEVAL_ENABLED
+            else settings.DOCUMENT_QA_MAX_PAGES
         )
+        pages = await asyncio.to_thread(extract_pages, upload.content, max_pages)
     except UploadRejectedError as exc:
         raise HTTPException(exc.status_code, detail=exc.detail) from None
     document = await store_pdf(
         user_id=current_user.id, upload=upload, pages=pages, db_session=db_session
     )
+    if settings.DOCUMENT_RETRIEVAL_ENABLED:
+        await queue_indexing(document, db_session)
     return StoredDocumentResponse(
         document_id=document.id,
         file_id=document.file_id,
         name=document.name,
         pages=len(pages),
+        index_status=document.index_status,
     )
 
 
@@ -126,9 +146,11 @@ async def ask_document(
     document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
-    pages = await get_pages(document.id, db_session)
-    if not pages:
+    page_count = await count_pages(document.id, db_session)
+    if not page_count:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_PREPARED)
+    use_retrieval = _use_retrieval(body.mode, document.index_status, page_count)
+    pages = [] if use_retrieval else await get_pages(document.id, db_session)
 
     conversation = None
     if body.conversation_id is not None:
@@ -146,9 +168,13 @@ async def ask_document(
             document_id=document.id,
             question=body.question,
             pages=pages,
+            page_count=page_count,
             conversation=conversation,
+            use_retrieval=use_retrieval,
             db_session=db_session,
         )
+    except RetrievalUnavailableError:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_INDEXED_FOR_MODEL) from None
     except LLMError as exc:
         raise to_http_error(exc) from None
     return DocumentAnswerResponse(
@@ -161,7 +187,43 @@ async def ask_document(
         model=answer.model,
         input_tokens=answer.input_tokens,
         output_tokens=answer.output_tokens,
+        mode=answer.mode,
     )
+
+
+@router.post(
+    "/{id}/index",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=IndexResponse,
+    responses={
+        404: {"description": "No such document for this user"},
+        409: {"description": "Retrieval is off, no stored pages, or already being indexed"},
+        429: ERROR_RESPONSES[429],
+    },
+)
+async def index_document_again(id: int, current_user: CurrentUser, db_session: DbSession):
+    """Split the stored PDF into chunks and embed them (in the background).
+
+    Needed for a document stored before retrieval was switched on, after a failure, or after a
+    change of ``EMBEDDING_MODEL``. Poll ``GET /documents/{id}`` for ``index_status``.
+    """
+    await _rate_limit(current_user=current_user)
+    document = await get_document_by_id(id=id, db_session=db_session, user_id=current_user.id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND)
+    if not settings.DOCUMENT_RETRIEVAL_ENABLED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Retrieval is switched off (DOCUMENT_RETRIEVAL_ENABLED).",
+        )
+    if not await count_pages(document.id, db_session):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_PREPARED)
+    if document.index_status == Index_Status.PROCESSING.value:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="This document is already being indexed."
+        )
+    await queue_indexing(document, db_session)
+    return IndexResponse(document_id=document.id, index_status=document.index_status)
 
 
 @router.get(
@@ -190,3 +252,39 @@ async def get_document_file(id: int, current_user: CurrentUser, db_session: DbSe
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+def _use_retrieval(mode: str, index_status: str, page_count: int) -> bool:
+    """Whether to answer from retrieved chunks (True) or from the whole text (False).
+
+    409 when the way asked for is not possible: chunks that are not ready, or a document too long
+    to read whole.
+    """
+    ready = index_status == Index_Status.READY.value
+    if mode == "chunks":
+        if not ready:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=_not_ready_message(index_status))
+        return True
+    if mode == "auto" and settings.DOCUMENT_RETRIEVAL_ENABLED and ready:
+        return True
+    if page_count > settings.DOCUMENT_QA_MAX_PAGES:
+        state = (
+            _not_ready_message(index_status)
+            if mode == "auto"
+            else ("Use mode 'chunks' or 'auto' once it is indexed.")
+        )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=LONG_DOCUMENT.format(
+                pages=page_count, limit=settings.DOCUMENT_QA_MAX_PAGES, state=state
+            ),
+        )
+    return False
+
+
+def _not_ready_message(index_status: str) -> str:
+    if index_status == Index_Status.PROCESSING.value:
+        return "It is still being indexed; try again in a moment."
+    if index_status == Index_Status.FAILED.value:
+        return "Indexing failed; start it again with POST /api/v1/documents/{id}/index."
+    return "It is not indexed; start it with POST /api/v1/documents/{id}/index."

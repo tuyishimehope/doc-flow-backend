@@ -17,6 +17,7 @@ import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from openai import (
     APIConnectionError,
@@ -42,6 +43,23 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "gemini"
 _PAGE_TAG = re.compile(r"<(/?)page")  # an opening or closing page tag
+_CHUNK_TAG = re.compile(r"<(/?)chunk")
+
+
+class RetrievedLike(Protocol):
+    """What the prompt needs from a retrieved chunk (``RetrievedChunk`` has more)."""
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def page(self) -> int: ...
+
+    @property
+    def position(self) -> int: ...
+
+    @property
+    def text(self) -> str: ...
 
 
 class Citation(BaseModel):
@@ -81,6 +99,21 @@ def _defuse(text: str) -> str:
     return _PAGE_TAG.sub(r"<\\\1page", text)
 
 
+def chunks_to_prompt(chunks: Sequence["RetrievedLike"], question: str) -> str:
+    """The user message for retrieval: the chosen chunks in reading order, each with its page,
+    then the question. Same protection as ``pages_to_prompt`` against text that looks like a tag.
+    """
+    blocks = [
+        f'<chunk id="{chunk.id}" page="{chunk.page}">\n{_defuse_chunk(chunk.text)}\n</chunk>'
+        for chunk in sorted(chunks, key=lambda item: (item.page, item.position))
+    ]
+    return "\n".join(blocks) + f"\n\n<question>\n{question}\n</question>"
+
+
+def _defuse_chunk(text: str) -> str:
+    return _CHUNK_TAG.sub(r"<\\\1chunk", text)
+
+
 async def answer_from_pages(
     *,
     user_id: int,
@@ -92,6 +125,28 @@ async def answer_from_pages(
     """Ask about the pages. ``history`` is the earlier questions and answers, oldest first,
     as plain ``role``/``content`` messages: only the answer text, never the citations. The
     pages go in again with the new question, so the model always reads the real text."""
+    return await answer_from_prompt(
+        user_id=user_id,
+        content=pages_to_prompt(pages, question),
+        system_prompt=system_prompt,
+        history=history,
+        mode="pages",
+        text_blocks=len(pages),
+    )
+
+
+async def answer_from_prompt(
+    *,
+    user_id: int,
+    content: str,
+    system_prompt: str,
+    history: Sequence[Message] = (),
+    mode: str,
+    text_blocks: int,
+) -> DocumentAnswerResult:
+    """The model call behind both ways of answering: the whole text (``pages_to_prompt``) or
+    only the retrieved chunks (``chunks_to_prompt``). ``text_blocks`` and ``mode`` are only
+    for the log line."""
     started = time.monotonic()
     state = "ok"
     input_tokens = output_tokens = None
@@ -101,7 +156,7 @@ async def answer_from_pages(
             messages=[
                 {"role": "system", "content": system_prompt},
                 *history,  # type: ignore[arg-type]  # plain role/content dicts
-                {"role": "user", "content": pages_to_prompt(pages, question)},
+                {"role": "user", "content": content},
             ],
             response_format=DocAnswer,
             max_tokens=settings.CHAT_MAX_OUTPUT_TOKENS,
@@ -144,7 +199,8 @@ async def answer_from_pages(
                 "model": settings.DOCUMENT_MODEL,
                 "status": state,
                 "latency_ms": int((time.monotonic() - started) * 1000),
-                "page_count": len(pages),
+                "mode": mode,
+                "chunk_count" if mode == "chunks" else "page_count": text_blocks,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "user_id": user_id,

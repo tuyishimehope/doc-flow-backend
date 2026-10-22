@@ -84,6 +84,7 @@ async def test_returns_the_answer_with_checked_citations(client, auth_headers, g
         "model": "gemini-test",
         "input_tokens": 900,
         "output_tokens": 40,
+        "mode": "pages",
     }
 
 
@@ -394,7 +395,7 @@ async def test_a_pdf_that_gives_orders_cannot_change_the_shape_or_fake_a_page(
     body = response.json()
     assert set(body) == {
         "conversation_id", "answer", "found", "grounded", "citations",
-        "pages", "model", "input_tokens", "output_tokens",
+        "pages", "model", "input_tokens", "output_tokens", "mode",
     }  # fmt: skip  # always the same fields, whatever the PDF says
     assert body["pages"] == 2
     assert body["citations"] == []  # page 9 does not exist, so the check dropped it

@@ -30,18 +30,22 @@ class CheckedCitations:
 
 
 def verify_citations(citations: list[Citation], pages: list[Page]) -> list[Citation]:
-    """Keep a citation only if its page exists and its quote is on that page.
+    """Keep a citation only if its page exists and its quote is on that page (or in one chunk).
 
     An empty quote is dropped (it is "found" everywhere). A repeat of a page and quote already
     kept is dropped. The order the model gave is kept.
     """
-    text_by_page = {page.number: _normalize(page.text) for page in pages}
+    # ``pages`` may list a page number more than once: with retrieval each entry is one chunk, and
+    # a quote must sit inside a single chunk (two chunks put together are not document text).
+    texts_by_page: dict[int, list[str]] = {}
+    for page in pages:
+        texts_by_page.setdefault(page.number, []).append(_normalize(page.text))
     kept: list[Citation] = []
     seen: set[tuple[int, str]] = set()
     for citation in citations:
-        page_text = text_by_page.get(citation.page)
+        page_texts = texts_by_page.get(citation.page)
         quote = _normalize(citation.quote)
-        if page_text is None or not quote or quote not in page_text:
+        if page_texts is None or not quote or not any(quote in text for text in page_texts):
             continue
         if (citation.page, quote) in seen:
             continue

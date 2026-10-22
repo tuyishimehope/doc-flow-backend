@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
 
@@ -10,6 +10,8 @@ class StoredDocumentResponse(BaseModel):
     file_id: int
     name: str
     pages: int
+    # NONE unless retrieval is on; then PROCESSING until the worker has embedded the chunks
+    index_status: str = "NONE"
 
 
 class AskDocumentRequest(BaseModel):
@@ -21,3 +23,12 @@ class AskDocumentRequest(BaseModel):
     ]
     # Leave it out to start a new conversation about this document.
     conversation_id: int | None = None
+
+    # "auto": read only the nearest chunks when the document is indexed and retrieval is switched
+    # on, otherwise the whole text. "pages" and "chunks" force one way, to compare them.
+    mode: Literal["auto", "pages", "chunks"] = "auto"
+
+
+class IndexResponse(BaseModel):
+    document_id: int
+    index_status: str

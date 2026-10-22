@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 
@@ -15,8 +16,15 @@ from app.service.chat.crud import (
     save_transcription,
 )
 from app.service.chat.schema import AUTO_TITLE_CHARS, CallUsage, MessageRole
+from app.service.document.chunks import retrieve_chunks
 from app.service.llm_client.document_qa import PROVIDER as DOCUMENT_PROVIDER
-from app.service.llm_client.document_qa import Citation, answer_from_pages
+from app.service.llm_client.document_qa import (
+    Citation,
+    answer_from_prompt,
+    chunks_to_prompt,
+    pages_to_prompt,
+)
+from app.service.llm_client.embedding import embed_texts
 from app.service.llm_client.llm_client import LLMClient, LLMResponse, Message, StreamEvent
 from app.service.llm_client.transcriber import transcribe
 from app.service.llm_client.vision import PROVIDER as VISION_PROVIDER
@@ -25,9 +33,12 @@ from app.utils.image import CleanImage
 from app.utils.pdf import Page
 from app.utils.upload import CheckedUpload
 
+logger = logging.getLogger(__name__)
+
 CHAT_PROMPT = "chat_v1"
 VISION_PROMPT = "vision_v1"
 DOCUMENT_PROMPT = "document_qa_v1"
+RAG_PROMPT = "document_rag_v1"  # the same job when only retrieved chunks are given
 
 
 def build_messages(message: str, history: Sequence[Message] = ()) -> list[Message]:
@@ -178,6 +189,10 @@ async def answer_image_question(
     )
 
 
+class RetrievalUnavailableError(Exception):
+    """The document is marked ready but has no chunks for the current embedding model."""
+
+
 @dataclass(frozen=True)
 class DocumentAnswer:
     conversation_id: int
@@ -189,6 +204,7 @@ class DocumentAnswer:
     model: str
     input_tokens: int | None
     output_tokens: int | None
+    mode: str = "pages"  # "pages": the whole text was read; "chunks": only the retrieved chunks
 
 
 async def answer_document_question(
@@ -210,7 +226,12 @@ async def answer_document_question(
     return await _answer_and_keep(
         user_id=user_id,
         question=question,
-        pages=pages,
+        content=pages_to_prompt(pages, question),
+        check_pages=pages,
+        prompt_version=DOCUMENT_PROMPT,
+        mode="pages",
+        text_blocks=len(pages),
+        total_pages=len(pages),
         question_meta={
             "document": {"bytes": upload.size, "pages": len(pages), "sha256": upload.sha256}
         },
@@ -226,14 +247,20 @@ async def ask_stored_document(
     document_id: int,
     question: str,
     pages: list[Page],
+    page_count: int,
     conversation: Conversation | None,
+    use_retrieval: bool,
     db_session: AsyncSession,
 ) -> DocumentAnswer:
     """Same as ``answer_document_question``, for a PDF that was stored earlier.
 
+    With ``use_retrieval`` the question is embedded and only the nearest chunks of this user's
+    document go to the model (``pages`` is not needed then); otherwise the model reads every page
+    in ``pages``. Either way the citations are checked against exactly the text the model saw.
+
     With a ``conversation`` the question is a follow-up: the last few questions and answers (the
-    answer text only, never the citations) go to the model with the pages. Without one, a new
-    conversation is started and linked to the document. Nothing is saved if the provider fails.
+    answer text only, never the citations) go to the model too. Without one, a new conversation
+    is started and linked to the document. Nothing is saved if the provider fails.
     """
     history: list[Message] = []
     if conversation is not None:
@@ -244,11 +271,61 @@ async def ask_stored_document(
             [{"role": m.role, "content": m.content} for m in earlier],  # type: ignore[misc]
             settings.CHAT_HISTORY_MAX_CHARS,
         )
+
+    question_meta = {"document": {"id": document_id, "pages": page_count}}
+    if not use_retrieval:
+        return await _answer_and_keep(
+            user_id=user_id,
+            question=question,
+            content=pages_to_prompt(pages, question),
+            check_pages=pages,
+            prompt_version=DOCUMENT_PROMPT,
+            mode="pages",
+            text_blocks=len(pages),
+            total_pages=page_count,
+            question_meta=question_meta,
+            conversation=conversation,
+            document_id=document_id,
+            history=history,
+            db_session=db_session,
+        )
+
+    embedded = await embed_texts([question], kind="query", user_id=user_id)
+    chunks = await retrieve_chunks(
+        db_session,
+        user_id=user_id,
+        document_id=document_id,
+        query_vector=embedded.vectors[0],
+        limit=settings.DOCUMENT_RETRIEVAL_TOP_K,
+    )
+    if not chunks:
+        raise RetrievalUnavailableError
+    logger.info(
+        "Chunks retrieved",
+        extra={
+            "document_id": document_id,
+            "user_id": user_id,
+            "chunk_count": len(chunks),
+            "chunk_ids": [chunk.id for chunk in chunks],
+            "distances": [round(chunk.distance, 4) for chunk in chunks],
+        },
+    )
     return await _answer_and_keep(
         user_id=user_id,
         question=question,
-        pages=pages,
-        question_meta={"document": {"id": document_id, "pages": len(pages)}},
+        content=chunks_to_prompt(chunks, question),
+        check_pages=[Page(number=chunk.page, text=chunk.text) for chunk in chunks],
+        prompt_version=RAG_PROMPT,
+        mode="chunks",
+        text_blocks=len(chunks),
+        total_pages=page_count,
+        question_meta=question_meta,
+        # ids, pages and distances only: the text is in document_chunk, not in the message
+        answer_meta={
+            "retrieval": [
+                {"id": c.id, "page": c.page, "distance": round(c.distance, 4)} for c in chunks
+            ]
+        },
         conversation=conversation,
         document_id=document_id,
         history=history,
@@ -260,21 +337,28 @@ async def _answer_and_keep(
     *,
     user_id: int,
     question: str,
-    pages: list[Page],
+    content: str,
+    check_pages: list[Page],
+    prompt_version: str,
+    mode: str,
+    text_blocks: int,
+    total_pages: int,
     question_meta: dict,
     conversation: Conversation | None,
     document_id: int | None,
     db_session: AsyncSession,
     history: Sequence[Message] = (),
+    answer_meta: dict | None = None,
 ) -> DocumentAnswer:
-    result = await answer_from_pages(
+    result = await answer_from_prompt(
         user_id=user_id,
-        question=question,
-        pages=pages,
-        system_prompt=load_prompt(DOCUMENT_PROMPT),
+        content=content,
+        system_prompt=load_prompt(prompt_version),
         history=history,
+        mode=mode,
+        text_blocks=text_blocks,
     )
-    checked = check_answer(result.answer, pages)
+    checked = check_answer(result.answer, check_pages)
     if conversation is None:
         conversation = await create_conversation(
             user_id, auto_title(question), db_session, document_id=document_id
@@ -299,11 +383,12 @@ async def _answer_and_keep(
             reasoning_tokens=result.reasoning_tokens,
             latency_ms=result.latency_ms,
         ),
-        prompt_version=DOCUMENT_PROMPT,
+        prompt_version=prompt_version,
         meta={
             "citations": [citation.model_dump() for citation in checked.citations],
             "grounded": checked.grounded,
             "found": result.answer.found,
+            **(answer_meta or {}),
         },
         db_session=db_session,
     )
@@ -313,8 +398,9 @@ async def _answer_and_keep(
         found=result.answer.found,
         grounded=checked.grounded,
         citations=checked.citations,
-        pages=len(pages),
+        pages=total_pages,
         model=result.model,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
+        mode=mode,
     )
