@@ -17,6 +17,9 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
   - [ ] 
 </details>
 
+<details>
+<summary>Phase 1 · One question, one answer</summary>
+
 ### Phase 1 · One question, one answer
 - [x] `POST /api/v1/chat` receives `{ "message": "..." }`
 - [x] Validate: trimmed, not empty, max 4,000 characters
@@ -36,6 +39,11 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
   - [x] Message text is never logged
 - [x] Tests: validation + LLM mocked
 
+</details>
+
+<details>
+<summary>Phase 2 · Streaming</summary>
+
 ### Phase 2 · Streaming
 - [x] Send the answer word by word (Server-Sent Events)
   - [x] `POST /api/v1/chat/stream` with events `conversation`, `message`, `done`, `error`
@@ -45,6 +53,11 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
   - [x] The server notices the disconnect, stops the provider call and does not keep paying for tokens
   - [x] The partial answer is saved as `cancelled` (see Phase 3)
 - [x] Tests: stream order, error mid-stream, disconnect
+
+</details>
+
+<details>
+<summary>Phase 3 · Memory (conversations)</summary>
 
 ### Phase 3 · Memory (conversations)
 - [x] Schema: `conversations` + `messages`
@@ -62,6 +75,11 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
   - [x] A cut-off or failed stream saves the partial answer with its status
 - [x] Tests: ownership, trimming, saving on error and cancel
 
+</details>
+
+<details>
+<summary>Phase 4 · More models + fallback</summary>
+
 ### Phase 4 · More models + fallback
 - [x] Second provider behind the same `LLMClient`
   - [x] Gemini, Groq and OpenAI added through the registry; keys and models in settings
@@ -76,8 +94,16 @@ Legend: `[x]` done and tested, `[ ]` not done yet.
   - [x] `GET /api/v1/chat/models` lists what is available
 - [x] Tests: fallback order, no fallback after the first piece, unknown model → 422
 
+</details>
+
+<details open>
+<summary>Phase 5 · Observability</summary>
+
 ### Phase 5 · Observability
 Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you query yourself.
+
+<details>
+<summary>5a · Sentry (done)</summary>
 
 #### 5a · Sentry (done)
 - [x] Add Sentry (`app/core/observability.py`), off while `SENTRY_DSN` is empty
@@ -88,6 +114,11 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
 - [x] Tag errors with `llm.provider` and `chat.model_choice`
 - [x] `SENTRY_DEBUG` switch and a startup line "Sentry is on / off"
 - [x] Tests with a fake transport, README section
+
+</details>
+
+<details open>
+<summary>5b · Your own numbers (done)</summary>
 
 #### 5b · Your own numbers (done)
 - [x] Store token usage on every assistant message
@@ -107,6 +138,13 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
   - [ ] Optional: an LLM-as-judge check for answers that keyword checks judge unfairly (not built)
   - [ ] Run it once against the live API and keep the first result as the baseline
 
+</details>
+
+</details>
+
+<details open>
+<summary>Phase 6 · Cost and abuse control</summary>
+
 ### Phase 6 · Cost and abuse control
 - [ ] Daily token budget per user
   - [ ] Setting `CHAT_DAILY_TOKEN_BUDGET` (needs 5b token columns)
@@ -124,6 +162,11 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
 - [ ] Alert when spend is unusual
   - [ ] Sentry alert on a sudden jump in tokens per hour
 
+</details>
+
+<details>
+<summary>Phase 7 · Reliability</summary>
+
 ### Phase 7 · Reliability
 - [ ] Circuit breaker per provider
   - [ ] After 3 failures in a row, skip that provider for 60 seconds
@@ -139,6 +182,11 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
   - [ ] 20 users at once on the stream endpoint; check p95, memory and database connections
   - [ ] Write the result in the README
 
+</details>
+
+<details>
+<summary>Phase 8 · Better memory</summary>
+
 ### Phase 8 · Better memory
 - [ ] Paginate the messages of a conversation
 - [ ] Summarise old messages instead of dropping them
@@ -146,6 +194,11 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
   - [ ] Send the summary + the last N messages
   - [ ] Test that a fact from message 1 is still known at message 30
 - [ ] Search inside a user's conversations by title
+
+</details>
+
+<details>
+<summary>Phase 9 · Feedback and control</summary>
 
 ### Phase 9 · Feedback and control
 - [ ] Thumbs up / down on an answer
@@ -157,6 +210,11 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
 - [ ] Stop a running stream from another request
   - [ ] `POST /chat/stream/{id}/stop` for clients that cannot close the connection
 - [ ] Tests for every endpoint, including "not your message → 404"
+
+</details>
+
+<details>
+<summary>Phase 10 · Quality gate</summary>
 
 ### Phase 10 · Quality gate
 - [ ] Run the evals in CI
@@ -170,3 +228,5 @@ Phase 5a is done: errors, logs and traces go to Sentry. Phase 5b is the data you
 - [ ] Final check of the whole chat
   - [ ] README has: setup, settings, endpoints, SSE example, monitoring, how to run evals
   - [ ] `openapi.json` regenerated and committed
+
+</details>

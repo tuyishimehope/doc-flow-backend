@@ -9,6 +9,9 @@ How to work: finish Part A in order. Each step is small and ends with a check yo
 Part B is a menu of extra steps; take **one at a time, only when the "when" column is true for you**.
 Nothing in Part B is needed for a working demo.
 
+<details>
+<summary>Decisions already made</summary>
+
 ### Decisions already made
 - **Model:** Groq `whisper-large-v3-turbo` (free tier, hosted).
   - Same OpenAI-style API your chat already uses: `POST {GROQ_BASE_URL}/audio/transcriptions`.
@@ -21,13 +24,26 @@ Nothing in Part B is needed for a working demo.
   service. For real casework audio see B10 (local model) and ask your team for its data-handling rules first.
 - **Languages:** start with English. Whether Whisper handles Kinyarwanda well is not confirmed here; B5 tests it.
 
+</details>
+
+<details open>
+<summary>Already built from plan_1 (carry-over)</summary>
+
 ### Already built from plan_1 (carry-over)
 - [~] Daily token budget per user (`CHAT_DAILY_TOKEN_BUDGET`)
 - [~] Max 2 running streams per user (`CHAT_MAX_CONCURRENT_STREAMS`)
 - [~] `prompt_version` column on messages
 - [ ] Write the decision "edit a message: remove or branch" in `plans/decisions.md` (only text, no code)
 
+</details>
+
+<details open>
+<summary>Part A · The smallest working version</summary>
+
 ## Part A · The smallest working version
+
+<details>
+<summary>A1 · Try the model by hand (no app code)</summary>
 
 ### A1 · Try the model by hand (no app code)
 - [x] Get a 10 to 30 second clip you recorded yourself (English). Keep it outside the repo.
@@ -35,11 +51,21 @@ Nothing in Part B is needed for a working demo.
   - [x] Check: the transcript is printed and roughly right
 - [x] Write down the response fields you see (`text`, anything else) and how long it took
 
+</details>
+
+<details>
+<summary>A2 · Settings</summary>
+
 ### A2 · Settings
 - [x] `TRANSCRIBE_MODEL=whisper-large-v3-turbo`
 - [x] `TRANSCRIBE_MAX_FILE_MB=10` (your own limit, below the provider's 25 MB)
 - [x] `TRANSCRIBE_TIMEOUT_SECONDS=60`
 - [x] Added to `app/core/config.py` and `.env.example`; the key is reused, never logged
+
+</details>
+
+<details>
+<summary>A3 · Send: POST /api/v1/transcribe</summary>
 
 ### A3 · Send: `POST /api/v1/transcribe`
 - [x] Multipart upload, signed-in users only
@@ -50,6 +76,11 @@ Nothing in Part B is needed for a working demo.
 - [x] Send the bytes to Groq with the OpenAI SDK pointed at `GROQ_BASE_URL`, like the chat client does
 - [x] Failures: provider error → 502, timeout → 504, with a clear message (no retries yet)
 
+</details>
+
+<details open>
+<summary>A4 · Store the transcript</summary>
+
 ### A4 · Store the transcript
 - [~] New table `transcription`: `id`, `user_id`, `text`, `model`, `audio_bytes`, `latency_ms`, `created_at`, with a migration (`ccff25f8d428`)
 - [~] `POST /transcribe` saves a row and returns `{ "id", "text", "model", "created_at" }`
@@ -57,10 +88,20 @@ Nothing in Part B is needed for a working demo.
 - [~] Check: the row is in the database, and the audio is not saved anywhere (no file, no column)
 - Not stored on purpose: token counts. Groq's transcription answer has none (only `text` and `x_groq.id`); it bills by audio hours. Audio length in seconds is B7.
 
+</details>
+
+<details open>
+<summary>A5 · Log</summary>
+
 ### A5 · Log
 - [~] One JSON log line per call: `provider`, `model`, `status`, `latency_ms`, `audio_bytes`
 - [~] The transcript text and the file name are never logged (add the new fields to the log whitelist)
 - [~] Check: make one good call and one failing call, then read the log lines
+
+</details>
+
+<details open>
+<summary>A6 · Audio → answer, with no new chat code</summary>
 
 ### A6 · Audio → answer, with no new chat code
 Backend: nothing to build. The frontend makes the two calls (`/transcribe`, then `/chat/stream` with the returned `text`).
@@ -68,9 +109,21 @@ Backend: nothing to build. The frontend makes the two calls (`/transcribe`, then
 - [~] Check: a spoken question gets a streamed answer
 - [~] A text longer than the chat limit gets the chat's normal 422
 
+</details>
+
+<details open>
+<summary>A7 · Done when</summary>
+
 ### A7 · Done when
 - [~] You can record a 10 s question and get an answer with two `curl` commands
 - [~] README has those two commands, the three settings, and one line on what is kept (transcript) and what is not (audio)
+
+</details>
+
+</details>
+
+<details>
+<summary>Part B · Extra steps (one at a time, only when needed)</summary>
 
 ## Part B · Extra steps (one at a time, only when needed)
 
@@ -87,3 +140,5 @@ Backend: nothing to build. The frontend makes the two calls (`/transcribe`, then
 | B9 | Audio minutes per day and transcription p50 / p95 in `/chat/stats` | You want to see usage |
 | B10 | Local model (for example faster-whisper on your own machine) so audio never leaves it | Before using any real recording of people |
 | B11 | Run the voice evals live and keep the first result as a baseline | You change the model or the prompt |
+
+</details>
