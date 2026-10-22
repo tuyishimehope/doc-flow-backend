@@ -20,6 +20,12 @@ CLIENT_TIMEOUT_SECONDS = 120  # the highest any feature allows; calls set their 
 @lru_cache(maxsize=1)
 def gemini_client() -> AsyncOpenAI:
     """One HTTP client for every call, so connections are reused."""
+    return new_gemini_client()
+
+
+def new_gemini_client() -> AsyncOpenAI:
+    """A client that is not shared. A Celery task runs each call in its own event loop
+    (``asyncio.run``), and an HTTP client must not be reused across loops."""
     api_key = settings.GEMINI_AI_API_KEY.get_secret_value()
     if not api_key:
         raise LLMNotConfiguredError("GEMINI_AI_API_KEY is not set")

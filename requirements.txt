@@ -19,3 +19,4 @@ pdf2image
 aiosmtplib
 pytest
 greenlet
+pgvector==0.4.1

@@ -129,6 +129,18 @@ class Settings(BaseSettings):
     DOCUMENT_QA_MAX_MB: int = Field(default=10, gt=0, le=14)
     DOCUMENT_QA_MAX_PAGES: int = Field(default=40, gt=0)
     DOCUMENT_QA_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
+    # Real RAG (plan_4, part C). While DOCUMENT_RETRIEVAL_ENABLED is false nothing is embedded and
+    # every question reads the whole document. Switched on, a stored PDF is split into chunks
+    # and embedded in the worker, and a question reads only the DOCUMENT_RETRIEVAL_TOP_K chunks
+    # nearest to it (a document that is not indexed yet still uses the whole text, up to
+    # DOCUMENT_QA_MAX_PAGES pages). The embedding model is part of every stored vector: change
+    # it and the documents must be indexed again. The vector size (768) is fixed in the schema.
+    DOCUMENT_RETRIEVAL_ENABLED: bool = False
+    DOCUMENT_RETRIEVAL_TOP_K: int = Field(default=5, ge=1, le=20)
+    DOCUMENT_RAG_MAX_PAGES: int = Field(default=300, gt=0)  # page limit when retrieval is on
+    EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
+    EMBEDDING_BATCH_SIZE: int = Field(default=50, gt=0, le=100)  # texts per request
+    EMBEDDING_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
 
 
 def load_settings() -> Settings:
