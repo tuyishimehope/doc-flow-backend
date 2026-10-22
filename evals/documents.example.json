@@ -1,0 +1,28 @@
+{
+  "_comment": "EXAMPLE ONLY. Copy to evals/documents.json, put a public 60-100 page PDF next to it, and write 15 questions from that PDF (3 whose answer is not in it). These three show the format; the pages and words are made up.",
+  "version": 1,
+  "document": "docs/handbook.pdf",
+  "cases": [
+    {
+      "id": "notice-period",
+      "question": "How many days of notice must an employee give before leaving?",
+      "page": 12,
+      "checks": { "contains_any": ["30", "thirty"] },
+      "why": "One fact on one page; the easy case both modes should get."
+    },
+    {
+      "id": "two-pages",
+      "question": "What are the two conditions for remote work approval?",
+      "pages": [18, 19],
+      "checks": { "contains_all": ["manager"] },
+      "why": "The answer starts on page 18 and ends on page 19; either page counts as right."
+    },
+    {
+      "id": "not-in-document",
+      "question": "What is the company's policy on sabbaticals?",
+      "page": null,
+      "checks": {},
+      "why": "Not in the document. The right answer is 'could not find it', with no citation."
+    }
+  ]
+}
