@@ -11,6 +11,7 @@ from app.api.v1.auth.auth import router as auth_router
 from app.api.v1.chat.conversations import CONVERSATIONS_ROUTER
 from app.api.v1.chat.router import CHAT_ROUTER
 from app.api.v1.document.document import router as document_router
+from app.api.v1.document.qa import router as document_qa_router
 from app.api.v1.file.file import router as file_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
 from app.core.config import settings
@@ -85,6 +86,7 @@ register_docs(app)
 
 app.include_router(router=auth_router)
 app.include_router(router=document_router)
+app.include_router(router=document_qa_router)
 app.include_router(router=file_router)
 app.include_router(router=processing_request_router)
 app.include_router(router=CHAT_ROUTER)

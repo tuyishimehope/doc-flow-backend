@@ -15,6 +15,7 @@ the log shows a real need.
 import logging
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from openai import (
@@ -33,6 +34,7 @@ from app.service.llm_client.llm_client import (
     LLMRateLimitError,
     LLMTimeoutError,
     LLMUnavailableError,
+    Message,
 )
 from app.utils.pdf import Page
 
@@ -80,8 +82,16 @@ def _defuse(text: str) -> str:
 
 
 async def answer_from_pages(
-    *, user_id: int, question: str, pages: list[Page], system_prompt: str
+    *,
+    user_id: int,
+    question: str,
+    pages: list[Page],
+    system_prompt: str,
+    history: Sequence[Message] = (),
 ) -> DocumentAnswerResult:
+    """Ask about the pages. ``history`` is the earlier questions and answers, oldest first,
+    as plain ``role``/``content`` messages: only the answer text, never the citations. The
+    pages go in again with the new question, so the model always reads the real text."""
     started = time.monotonic()
     state = "ok"
     input_tokens = output_tokens = None
@@ -90,6 +100,7 @@ async def answer_from_pages(
             model=settings.DOCUMENT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
+                *history,  # type: ignore[arg-type]  # plain role/content dicts
                 {"role": "user", "content": pages_to_prompt(pages, question)},
             ],
             response_format=DocAnswer,

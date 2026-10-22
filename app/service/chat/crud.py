@@ -14,8 +14,10 @@ from app.models.schema import Conversation, Message, Transcription
 from app.service.chat.schema import CallUsage, MessageRole, MessageStatus
 
 
-async def create_conversation(user_id: int, title: str, db_session: AsyncSession) -> Conversation:
-    conversation = Conversation(user_id=user_id, title=title)
+async def create_conversation(
+    user_id: int, title: str, db_session: AsyncSession, document_id: int | None = None
+) -> Conversation:
+    conversation = Conversation(user_id=user_id, title=title, document_id=document_id)
     db_session.add(conversation)
     await db_session.flush()
     await db_session.refresh(conversation)

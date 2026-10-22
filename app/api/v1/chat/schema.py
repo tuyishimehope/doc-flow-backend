@@ -53,8 +53,14 @@ class ConversationResponse(BaseModel):
 
     id: int
     title: str
+    document_id: int | None = None  # set when the conversation is about a stored PDF
     created_at: datetime
     updated_at: datetime
+
+
+class CitationResponse(BaseModel):
+    page: int  # the number the PDF viewer shows, starting at 1
+    quote: str  # a short quote that was found, word for word, on that page
 
 
 class MessageResponse(BaseModel):
@@ -65,6 +71,9 @@ class MessageResponse(BaseModel):
     content: str
     status: str
     model: str | None
+    # Only on answers about a document, so a reopened conversation can show its sources.
+    citations: list[CitationResponse] | None = None
+    grounded: bool | None = None
     created_at: datetime
 
 
@@ -130,11 +139,6 @@ class TranscriptionResponse(BaseModel):
     text: str
     model: str
     created_at: datetime
-
-
-class CitationResponse(BaseModel):
-    page: int  # the number the PDF viewer shows, starting at 1
-    quote: str  # a short quote that was found, word for word, on that page
 
 
 class DocumentAnswerResponse(BaseModel):

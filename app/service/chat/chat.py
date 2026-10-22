@@ -3,12 +3,14 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.schema import Transcription
+from app.core.config import settings
+from app.models.schema import Conversation, Transcription
 from app.prompts import load_prompt
 from app.service.chat.citations import check_answer
 from app.service.chat.crud import (
     add_message,
     create_conversation,
+    get_recent_messages,
     get_transcription_by_id,
     save_transcription,
 )
@@ -205,19 +207,83 @@ async def answer_document_question(
     daily token budget and ``/chat/stats`` count it like any other answer. If the provider
     fails, nothing is saved.
     """
+    return await _answer_and_keep(
+        user_id=user_id,
+        question=question,
+        pages=pages,
+        question_meta={
+            "document": {"bytes": upload.size, "pages": len(pages), "sha256": upload.sha256}
+        },
+        conversation=None,
+        document_id=None,
+        db_session=db_session,
+    )
+
+
+async def ask_stored_document(
+    *,
+    user_id: int,
+    document_id: int,
+    question: str,
+    pages: list[Page],
+    conversation: Conversation | None,
+    db_session: AsyncSession,
+) -> DocumentAnswer:
+    """Same as ``answer_document_question``, for a PDF that was stored earlier.
+
+    With a ``conversation`` the question is a follow-up: the last few questions and answers (the
+    answer text only, never the citations) go to the model with the pages. Without one, a new
+    conversation is started and linked to the document. Nothing is saved if the provider fails.
+    """
+    history: list[Message] = []
+    if conversation is not None:
+        earlier = await get_recent_messages(
+            conversation.id, settings.CHAT_HISTORY_MESSAGES, db_session
+        )
+        history = trim_history(
+            [{"role": m.role, "content": m.content} for m in earlier],  # type: ignore[misc]
+            settings.CHAT_HISTORY_MAX_CHARS,
+        )
+    return await _answer_and_keep(
+        user_id=user_id,
+        question=question,
+        pages=pages,
+        question_meta={"document": {"id": document_id, "pages": len(pages)}},
+        conversation=conversation,
+        document_id=document_id,
+        history=history,
+        db_session=db_session,
+    )
+
+
+async def _answer_and_keep(
+    *,
+    user_id: int,
+    question: str,
+    pages: list[Page],
+    question_meta: dict,
+    conversation: Conversation | None,
+    document_id: int | None,
+    db_session: AsyncSession,
+    history: Sequence[Message] = (),
+) -> DocumentAnswer:
     result = await answer_from_pages(
         user_id=user_id,
         question=question,
         pages=pages,
         system_prompt=load_prompt(DOCUMENT_PROMPT),
+        history=history,
     )
     checked = check_answer(result.answer, pages)
-    conversation = await create_conversation(user_id, auto_title(question), db_session)
+    if conversation is None:
+        conversation = await create_conversation(
+            user_id, auto_title(question), db_session, document_id=document_id
+        )
     await add_message(
         conversation_id=conversation.id,
         role=MessageRole.USER,
         content=question,
-        meta={"document": {"bytes": upload.size, "pages": len(pages), "sha256": upload.sha256}},
+        meta=question_meta,
         db_session=db_session,
     )
     await add_message(
