@@ -1,12 +1,8 @@
 import io
-import logging
 from pathlib import Path
 
-import pytesseract
 from fastapi import UploadFile
-from PIL import Image, ImageOps, UnidentifiedImageError
-
-logger = logging.getLogger(__name__)
+from PIL import Image
 
 
 def get_file_extension(file: UploadFile) -> str:
@@ -36,15 +32,9 @@ def validate_document_content(file: UploadFile, content: bytes) -> bool:
         return False
 
     if content_type == "application/pdf":
-        if not content.startswith(b"%PDF-"):
-            return False
-        try:
-            from pypdf import PdfReader
-
-            reader = PdfReader(io.BytesIO(content))
-            return len(reader.pages) > 0 and not reader.is_encrypted
-        except Exception:
-            return False
+        # Only the signature here: the file is read once, by Docling in the worker, which
+        # fails the request with a clear reason if it is damaged or encrypted.
+        return content.startswith(b"%PDF-")
     if content_type in {"image/jpeg", "image/png", "image/tiff"}:
         signatures = {
             "image/jpeg": content.startswith(b"\xff\xd8\xff"),
@@ -81,54 +71,3 @@ def validate_document_content(file: UploadFile, content: bytes) -> bool:
             return False
 
     return False
-
-
-def extract_text_from_pdf(file_stream) -> str:
-    from pypdf import PdfReader
-
-    reader = PdfReader(io.BytesIO(file_stream.read()))
-
-    pages = []
-
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            pages.append(text)
-
-    text = "\n".join(pages).strip()
-    if text:
-        return text
-
-    # Scanned PDFs contain page images rather than an embedded text layer.
-    from pdf2image import convert_from_bytes
-
-    images = convert_from_bytes(file_stream.getvalue())
-    return "\n".join(
-        pytesseract.image_to_string(ImageOps.grayscale(page)) for page in images
-    ).strip()
-
-
-def extract_text_from_doc(file_stream) -> str:
-    from docx import Document
-
-    doc = Document(io.BytesIO(file_stream.read()))
-
-    text = [para.text for para in doc.paragraphs]
-    full_text = "\n".join(text)
-
-    return full_text
-
-
-def extract_text_from_image(file_stream) -> str:
-    try:
-        image = Image.open(io.BytesIO(file_stream))
-        image = ImageOps.exif_transpose(image)
-        image = ImageOps.grayscale(image)
-        logger.debug(
-            "Image prepared for OCR",
-            extra={"image_width": image.width, "image_height": image.height},
-        )
-        return pytesseract.image_to_string(image)
-
-    except UnidentifiedImageError:
-        raise ValueError("Invalid image file")

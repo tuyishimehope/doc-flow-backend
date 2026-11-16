@@ -2,7 +2,7 @@
 ``read_checked_upload`` (type, size, first bytes), ``scan_upload``, then ``extract_pages``.
 
 The virus scan is tested against a tiny fake ``clamd`` that speaks the same INSTREAM protocol, so
-no ClamAV is needed. It proves the wiring (an infected file ends as a 422 and the PDF reader never
+no ClamAV is needed. It proves the wiring (an infected file ends as a 422 and the parser never
 sees it), not ClamAV's own detection.
 """
 
@@ -10,11 +10,11 @@ import asyncio
 import io
 import struct
 
-import pypdf
 import pytest
 from fastapi import UploadFile
 
 from app.core.config import settings
+from app.utils import pdf
 from app.utils.pdf import extract_pages, pdf_policy
 from app.utils.scan import scan_upload
 from app.utils.upload import UploadRejectedError, read_checked_upload
@@ -139,22 +139,22 @@ async def test_the_eicar_file_is_422_when_scanning_is_on(ten_mb_limit, clamd):
 
 
 @pytest.mark.anyio
-async def test_an_infected_file_never_reaches_the_pdf_reader(ten_mb_limit, clamd, monkeypatch):
-    real_reader = pypdf.PdfReader
+async def test_an_infected_file_never_reaches_the_parser(ten_mb_limit, clamd, monkeypatch):
+    real_parse = pdf.parse
     opened = []
 
     def spy(*args, **kwargs):  # records the call; an exception here would be turned into a 422
         opened.append(True)
-        return real_reader(*args, **kwargs)
+        return real_parse(*args, **kwargs)
 
-    monkeypatch.setattr(pypdf, "PdfReader", spy)
+    monkeypatch.setattr(pdf, "parse", spy)
 
     with pytest.raises(UploadRejectedError) as caught:
         await check(b"%PDF-1.4\n" + EICAR)
 
     assert caught.value.status_code == 422
     assert "virus" in caught.value.detail
-    assert opened == []  # the reader was never opened
+    assert opened == []  # the parser never saw the file
 
 
 @pytest.mark.anyio
@@ -171,11 +171,11 @@ async def test_when_the_scanner_is_on_but_down_the_upload_is_503(ten_mb_limit, m
 @pytest.mark.anyio
 async def test_the_eicar_file_is_not_flagged_when_scanning_is_off(ten_mb_limit, monkeypatch):
     # With CLAMAV_HOST empty nothing scans. The file is not a readable PDF, so it fails later, at
-    # the reader (422 "damaged"), not at the scan. This pins the off switch.
+    # the parser (422 "damaged"), not at the scan. This pins the off switch.
     monkeypatch.setattr(settings, "CLAMAV_HOST", "")
 
     with pytest.raises(UploadRejectedError) as caught:
         await check(b"%PDF-1.4\n" + EICAR)
 
     assert caught.value.status_code == 422
-    assert "damaged" in caught.value.detail  # stopped by the PDF reader, not by a scan
+    assert "damaged" in caught.value.detail  # stopped by the parser, not by a scan

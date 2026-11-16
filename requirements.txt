@@ -5,8 +5,7 @@ python-dotenv==1.1.1
 celery==5.5.3
 sentry-sdk[fastapi]==2.72.0
 openai==1.95.1
-python-docx==1.2.0
-pypdf==5.7.0
+docling==2.149.0
 sqlalchemy==2.0.41
 redis==6.2.0
 asyncpg>=0.29.0
@@ -14,8 +13,6 @@ psycopg2-binary
 pyjwt 
 pydantic-settings
 pwdlib[argon2]
-pytesseract
-pdf2image
 aiosmtplib
 pytest
 greenlet

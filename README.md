@@ -37,8 +37,7 @@ The project is intended to be a practical, extensible foundation for workflows s
 - Email-based password reset flow
 - Per-user document and file access
 - Multipart uploads backed by MinIO object storage
-- PDF and DOCX text extraction
-- OCR for JPEG, PNG, and TIFF images with Tesseract
+- One parser, [Docling](https://github.com/docling-project/docling), reads PDF, DOCX, JPEG, PNG, and TIFF (layout, tables, and OCR for scanned pages and images)
 - Background processing through Celery and Redis
 - PostgreSQL persistence for users, documents, requests, jobs, and results
 - Three processing modes: `DOCUMENT_SUMMARY`, `INVOICE_EXTRACTION`, and `CONTRACT_METADATA`
@@ -57,7 +56,7 @@ FastAPI --------> PostgreSQL
   |               original files
   |
   `-------------> Redis queue -----> Celery worker
-                                      |-- extract text / run OCR
+                                      |-- read the file with Docling
                                       |-- send content to OpenAI
                                       `-- persist status and result
 ```
@@ -82,8 +81,8 @@ Errors move the request to `FAILED`. `CANCELLED` exists in the data model, but t
 | Redis | Celery message broker and result backend |
 | Celery | Background document processing |
 | OpenAI API | Summarization and extraction |
-| pypdf / python-docx | PDF and DOCX text extraction |
-| Tesseract | Image OCR |
+| Docling | Reads every uploaded file: PDF, DOCX, and images |
+| RapidOCR | OCR engine Docling uses for scanned pages and images (installed with Docling) |
 
 ## Quick Start
 
@@ -91,11 +90,10 @@ Errors move the request to `FAILED`. `CANCELLED` exists in the data model, but t
 
 - Python 3.12 or newer
 - Docker and Docker Compose
-- Tesseract OCR
 - An OpenAI API key with access to the configured model
 - SMTP credentials if you want to test password-reset email delivery
 
-The Docker image uses Python 3.12 and installs Tesseract and Poppler for OCR. For local development, install those system tools on the host as well.
+The Docker image uses Python 3.12 and bakes in Docling's models. Locally, Docling downloads them on first use; no system OCR tools are needed.
 
 ### 1. Create the environment
 
@@ -108,16 +106,13 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Install Tesseract and Poppler if they are not already available:
+Docling downloads its layout, table and OCR models on first use (about a few hundred MB, cached in `~/.cache/docling`). To fetch them ahead of time:
 
 ```bash
-# macOS
-brew install tesseract poppler
-
-# Debian / Ubuntu
-sudo apt-get update
-sudo apt-get install tesseract-ocr poppler-utils
+docling-tools models download layout tableformer rapidocr
 ```
+
+Set `DOCUMENT_OCR_ENABLED=false` to read only the text layer of PDFs (faster).
 
 ### 2. Configure the application
 
@@ -610,7 +605,7 @@ app/
 ├── models/schema.py        # SQLAlchemy persistence models
 ├── service/                # Auth, document, file, and OpenAI logic
 ├── tasks/                  # Celery configuration and tasks
-└── utils/                  # Text extraction and email helpers
+└── utils/                  # Docling parser, upload checks, and email helpers
 migrations/                 # Alembic migrations
 evals/                      # Chat test questions (chat.json), a document eval example, saved runs
 scripts/                    # Tools you run by hand: run_evals.py, run_doc_evals.py (not part of the server)
@@ -669,7 +664,7 @@ Never commit `.env`, API keys, SMTP credentials, uploaded documents, or other se
 - The sample `.env.example` documents the required application settings; replace its placeholder secrets and credentials before deploying.
 - The OpenAI call is bounded by configurable input-character and output-token limits, but those limits do not guarantee a fixed monetary cost.
 - Uploads default to a 10 MiB maximum, configurable with `MAX_UPLOAD_SIZE_BYTES`; the MIME type and file signature or container are checked before storage.
-- PDFs without embedded text use Tesseract OCR through Poppler. Large or unusually complex PDFs can still require substantial worker memory and processing time.
+- Docling runs OCR (RapidOCR) on pages without embedded text. Large or unusually complex PDFs can still require substantial worker memory and processing time.
 - Celery task failures are retried up to three times, and job attempts record retry and failure state.
 - Worker logs include document, request, task, and attempt identifiers but omit extracted document text.
 

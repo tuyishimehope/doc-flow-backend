@@ -1,10 +1,13 @@
-"""Reading a PDF page by page (app/utils/pdf.py)."""
+"""The PDF wrapper of the question endpoints (app/utils/pdf.py).
 
-import io
+Docling itself is faked here, so these tests are fast and need no models: they pin how the
+parser's answers become HTTP statuses. ``tests/test_parser.py`` runs the real Docling.
+"""
 
-import pypdf
 import pytest
 
+from app.utils import pdf
+from app.utils.parser import ParseError
 from app.utils.pdf import Page, extract_pages
 from app.utils.upload import UploadRejectedError
 
@@ -44,79 +47,58 @@ def make_pdf(page_texts: list[str]) -> bytes:
     return bytes(out)
 
 
-def encrypted(pdf: bytes) -> bytes:
-    writer = pypdf.PdfWriter(clone_from=io.BytesIO(pdf))
-    writer.encrypt("secret", algorithm="RC4-128")
-    out = io.BytesIO()
-    writer.write(out)
-    return out.getvalue()
+@pytest.fixture
+def parsed(monkeypatch):
+    """Make the parser return the given pages (or raise), and record what it was asked."""
+    calls = []
+
+    def use(result):
+        def fake(content, content_type, max_pages=None):
+            calls.append((content_type, max_pages))
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        monkeypatch.setattr(pdf, "parse", fake)
+        return calls
+
+    return use
 
 
-def test_three_pages_come_back_in_order_with_their_own_text():
-    pages = extract_pages(make_pdf(["alpha one", "bravo two", "charlie three"]), max_pages=40)
+def test_pages_come_back_from_the_parser_in_order(parsed):
+    pages = [Page(1, "alpha one"), Page(2, ""), Page(3, "charlie three")]
+    calls = parsed(pages)
 
-    assert pages == [
-        Page(1, "alpha one"),
-        Page(2, "bravo two"),
-        Page(3, "charlie three"),
-    ]
+    assert extract_pages(make_pdf(["x"]), max_pages=40) == pages
+    assert calls == [("application/pdf", 40)]  # the cap goes to the parser, which counts first
 
 
-def test_an_empty_page_keeps_its_number():
-    pages = extract_pages(make_pdf(["first", "", "third"]), max_pages=40)
+def test_too_many_pages_is_413_and_names_the_count(parsed):
+    parsed(ParseError("too many", too_many_pages=41))
 
-    assert [p.number for p in pages] == [1, 2, 3]
-    assert pages[1].text == ""
-    assert pages[2].text == "third"
-
-
-def test_exactly_the_cap_is_allowed():
-    assert len(extract_pages(make_pdf(["x"] * 40), max_pages=40)) == 40
-
-
-def test_one_page_over_the_cap_is_413():
     with pytest.raises(UploadRejectedError) as caught:
-        extract_pages(make_pdf(["x"] * 41), max_pages=40)
+        extract_pages(make_pdf(["x"]), max_pages=40)
 
     assert caught.value.status_code == 413
     assert "41" in caught.value.detail
+    assert "40" in caught.value.detail
 
 
-def test_the_cap_is_checked_before_any_text_is_read(monkeypatch):
-    def boom(self, *args, **kwargs):
-        raise AssertionError("text was read before the page count was checked")
-
-    monkeypatch.setattr(pypdf.PageObject, "extract_text", boom)
+def test_a_pdf_the_parser_cannot_read_is_422(parsed):
+    parsed(ParseError("damaged"))
 
     with pytest.raises(UploadRejectedError) as caught:
-        extract_pages(make_pdf(["x"] * 5), max_pages=4)
-
-    assert caught.value.status_code == 413
-
-
-def test_a_pdf_with_no_text_on_any_page_is_422_and_says_scanned():
-    with pytest.raises(UploadRejectedError) as caught:
-        extract_pages(make_pdf(["", "", ""]), max_pages=40)
+        extract_pages(b"%PDF-1.4\n garbage", max_pages=40)
 
     assert caught.value.status_code == 422
-    assert "scanned PDFs are not supported yet" in caught.value.detail
+    assert "damaged or encrypted" in caught.value.detail
 
 
-def test_an_encrypted_pdf_is_422():
+def test_a_pdf_with_no_text_on_any_page_is_422(parsed):
+    parsed([Page(1, ""), Page(2, "")])
+
     with pytest.raises(UploadRejectedError) as caught:
-        extract_pages(encrypted(make_pdf(["secret text"])), max_pages=40)
+        extract_pages(make_pdf(["", ""]), max_pages=40)
 
     assert caught.value.status_code == 422
-    assert "encrypted" in caught.value.detail
-
-
-@pytest.mark.parametrize(
-    "content",
-    [b"", b"not a pdf at all", b"%PDF-1.4\n garbage with no structure", make_pdf(["ok"])[:60]],
-    ids=["empty", "text", "header-only", "cut-off"],
-)
-def test_a_broken_pdf_is_422(content):
-    with pytest.raises(UploadRejectedError) as caught:
-        extract_pages(content, max_pages=40)
-
-    assert caught.value.status_code == 422
+    assert "no readable text" in caught.value.detail

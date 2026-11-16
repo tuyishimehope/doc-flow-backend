@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from io import BytesIO
 
 import openai
 from sqlalchemy import Select
@@ -24,12 +23,8 @@ from app.service.document.schema import (
 from app.service.file.file import get_file
 from app.service.openai.service import OpenaiService
 from app.tasks.celery_app import celery_app
-from app.utils.document import (
-    extract_text_from_doc,
-    extract_text_from_image,
-    extract_text_from_pdf,
-)
 from app.utils.email_utils import send_processing_finished_email
+from app.utils.parser import parse_text
 
 logger = logging.getLogger(__name__)
 
@@ -158,17 +153,8 @@ async def process_document(self, processing_request_id: int):
         file_object = get_file(file_id=file_record.id)
         file_bytes = file_object.read()
 
-        if file_record.content_type == "application/pdf":
-            extracted_content = extract_text_from_pdf(BytesIO(file_bytes))
-        elif (
-            file_record.content_type
-            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ):
-            extracted_content = extract_text_from_doc(BytesIO(file_bytes))
-        elif file_record.content_type and file_record.content_type.startswith("image/"):
-            extracted_content = extract_text_from_image(file_bytes)
-        else:
-            raise ValueError(f"Unsupported file content type: {file_record.content_type}")
+        # ParseError is a ValueError: a file Docling cannot read fails for good, no retry.
+        extracted_content = parse_text(file_bytes, file_record.content_type or "")
 
         if not extracted_content.strip():
             raise ValueError("No text could be extracted from the uploaded file")

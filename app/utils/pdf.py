@@ -1,30 +1,24 @@
-"""Read a PDF page by page, so that an answer can point to a page.
-
-``extract_text_from_pdf`` in ``app/utils/document.py`` joins every page into one string and the
-page numbers are lost; the processing pipeline needs it that way, so it stays as it is. This
-module keeps the page number next to its text.
+"""PDF uploads for the question endpoints: the upload policy and the page-by-page read.
 
 ``pdf_policy`` plugs into ``read_checked_upload`` (``app/utils/upload.py``), the same way
 ``image_policy`` does for pictures. The order for a document endpoint is: ``read_checked_upload``
 (type, size, first bytes), then ``scan_upload`` (``app/utils/scan.py``), then ``extract_pages``,
-because the PDF reader is what a hostile file attacks and must see the file last.
+because the parser is what a hostile file attacks and must see the file last.
 
-``extract_pages`` is plain blocking code (parsing is CPU work). Call it from an endpoint with
-``await asyncio.to_thread(extract_pages, content, max_pages)`` so the server stays responsive.
-Problems are raised as ``UploadRejectedError`` with the HTTP status the file deserves.
+The reading itself is Docling's (``app/utils/parser.py``), the one parser of the project. This
+module only turns its errors into ``UploadRejectedError`` with the HTTP status the file deserves.
+Call ``extract_pages`` with ``await asyncio.to_thread(extract_pages, content, max_pages)``.
 """
-
-import io
-from dataclasses import dataclass
-
-import pypdf
 
 from app.core.config import settings
 from app.utils.chat_utils import convert_mb_to_bytes
+from app.utils.parser import PDF, Page, ParseError, parse
 from app.utils.upload import FileType, UploadPolicy, UploadRejectedError
 
+__all__ = ["PDF_TYPES", "Page", "extract_pages", "pdf_policy"]
+
 # A real PDF starts with "%PDF-". The extension and the browser's content type prove nothing.
-_PDF = FileType("application/pdf", lambda b: b.startswith(b"%PDF-"))
+_PDF = FileType(PDF, lambda b: b.startswith(b"%PDF-"))
 PDF_TYPES = {"pdf": _PDF}
 
 
@@ -34,42 +28,23 @@ def pdf_policy() -> UploadPolicy:
     )
 
 
-@dataclass(frozen=True)
-class Page:
-    number: int  # starts at 1, the same number the PDF viewer shows
-    text: str  # empty when the page has no text (a blank page, or only an image)
-
-
 def extract_pages(content: bytes, max_pages: int) -> list[Page]:
     """Return every page in order. An empty page is kept, so the numbers still match the viewer.
 
     Raises ``UploadRejectedError``: 413 above ``max_pages`` (checked before reading any text),
-    422 for an encrypted, damaged or scanned PDF (no text on any page).
+    422 for an encrypted or damaged PDF, or one with no text on any page (even after OCR).
     """
     try:
-        pages = _read(content, max_pages)
-    except UploadRejectedError:
-        raise
-    except Exception as exc:  # pypdf raises many kinds of errors on bad files
-        raise UploadRejectedError(422, "This PDF is damaged and cannot be read.") from exc
+        pages = parse(content, PDF, max_pages=max_pages)
+    except ParseError as exc:
+        if exc.too_many_pages is not None:
+            raise UploadRejectedError(
+                413, f"This PDF has {exc.too_many_pages} pages; the limit is {max_pages} pages."
+            ) from exc
+        raise UploadRejectedError(
+            422, "This PDF is damaged or encrypted and cannot be read."
+        ) from exc
 
     if not any(page.text for page in pages):
-        raise UploadRejectedError(422, "This PDF has no text; scanned PDFs are not supported yet.")
+        raise UploadRejectedError(422, "This PDF has no readable text.")
     return pages
-
-
-def _read(content: bytes, max_pages: int) -> list[Page]:
-    reader = pypdf.PdfReader(io.BytesIO(content))
-    if reader.is_encrypted:
-        raise UploadRejectedError(422, "This PDF is encrypted; remove the password and try again.")
-
-    total = len(reader.pages)
-    if total > max_pages:
-        raise UploadRejectedError(
-            413, f"This PDF has {total} pages; the limit is {max_pages} pages."
-        )
-
-    return [
-        Page(number=number, text=(page.extract_text() or "").strip())
-        for number, page in enumerate(reader.pages, start=1)
-    ]

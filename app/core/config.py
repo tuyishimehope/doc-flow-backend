@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     DOCUMENT_RETRIEVAL_ENABLED: bool = False
     DOCUMENT_RETRIEVAL_TOP_K: int = Field(default=5, ge=1, le=20)
     DOCUMENT_RAG_MAX_PAGES: int = Field(default=300, gt=0)  # page limit when retrieval is on
+    # Docling (app/utils/parser.py) reads every uploaded file. OCR gives text for scanned pages
+    # and pictures; turn it off to read only the text layer (faster). The timeout stops one file
+    # from holding a worker: the pages read so far are kept.
+    DOCUMENT_OCR_ENABLED: bool = True
+    DOCUMENT_PARSE_TIMEOUT_SECONDS: int = Field(default=120, gt=0)
     EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
     EMBEDDING_BATCH_SIZE: int = Field(default=50, gt=0, le=100)  # texts per request
     EMBEDDING_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)

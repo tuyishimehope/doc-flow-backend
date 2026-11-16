@@ -2,6 +2,32 @@
 
 Short notes on choices that are easy to forget the reason for. Newest first. Only text, no code.
 
+## 2026-11-08 · One parser: Docling reads every file
+
+**Question.** Text came out of four libraries: `pypdf` (PDF text layer, both the worker and the page-by-page
+read), `pdf2image` + `pytesseract` (scanned PDFs in the worker only), `python-docx` (DOCX) and `pytesseract`
+(images). Each had its own failure modes and the question endpoints refused scanned PDFs.
+
+**Chosen: Docling for all of it**, in `app/utils/parser.py`. One `parse(content, content_type, max_pages)` returns
+pages; the worker joins them (`parse_text`), the question endpoints keep them (`app/utils/pdf.py` maps errors to
+413/422). Docling reads the layout and tables, and runs OCR (RapidOCR, picked by Docling's `auto` mode) on pages that are pictures,
+so scanned PDFs now work on every path.
+
+**What follows from it.**
+
+- The page cap is still checked before any page is read: Docling counts pages and stops above `max_num_pages`.
+- The upload check of the old route no longer opens the PDF; it checks the `%PDF-` signature only. A damaged or
+  encrypted file now fails in the worker with a reason the user sees, instead of a 400 at upload.
+- Page text is Docling's plain text (blocks separated by a blank line, no markdown marks), so chunking and the
+  citation check work as before. Text of the same PDF can differ a little from `pypdf`'s; stored pages of old
+  documents are not re-read.
+- The image is bigger (PyTorch CPU and the layout, table and OCR models, downloaded at build time; Tesseract and Poppler are gone). The first parse
+  in a process loads the models, a few seconds; the converter is kept for the next files.
+- `DOCUMENT_OCR_ENABLED` turns OCR off; `DOCUMENT_PARSE_TIMEOUT_SECONDS` bounds one file.
+
+**Not decided here (trigger to decide it).** Running Docling on a GPU, or in its own worker queue: when parsing
+time shows up as the slow part of a request.
+
 ## 2026-10-22 · Part C (plan_4): how retrieval is built
 
 **Question.** Part C changes which text goes into the prompt. Four choices could have gone another way.

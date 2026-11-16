@@ -1,3 +1,5 @@
 -r requirements.txt
 ruff==0.13.2
 mypy==1.18.2
+# Builds encrypted PDFs for the parser tests; the app itself reads files only with docling.
+pypdf==5.7.0
