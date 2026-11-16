@@ -19,9 +19,9 @@ from app.service.document.crud import (
     save_processing_request,
 )
 from app.service.document.schema import ExportFormat, Processing_status, Processing_Type
-from app.service.file.file import delete_file, post_file
+from app.service.file.file import delete_file, post_bytes
 from app.tasks.document_task import start_processing
-from app.utils.document import get_file_extension
+from app.utils.upload import CheckedUpload
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +29,23 @@ logger = logging.getLogger(__name__)
 async def process_document(
     id: int,
     file: UploadFile,
+    upload: CheckedUpload,
     processing_type: Processing_Type,
     instructions: str | None,
     db_session: AsyncSession,
 ):
     stored_object_id = None
     try:
-        file_name = get_file_extension(file)
-
-        file_object = await save_file(file=file, file_name=file_name, db_session=db_session)
+        # The type comes from the checked bytes, never from what the client declared.
+        file_object = await save_file(
+            file=file,
+            file_name=upload.extension,
+            content_type=upload.mime,
+            db_session=db_session,
+        )
         stored_object_id = str(file_object.id)
 
-        await post_file(file=file, file_id=str(file_object.id))
+        await post_bytes(upload.content, str(file_object.id), upload.mime)
 
         user = await get_user_by_id(db_session=db_session, id=id)
 

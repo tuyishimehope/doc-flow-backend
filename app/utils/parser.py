@@ -10,12 +10,16 @@ with ``await asyncio.to_thread(...)``. Run it only after ``read_checked_upload``
 ``scan_upload``: a parser is what a hostile file attacks, so it must see the file last.
 
 One ``DocumentConverter`` is built per process and kept, because building it loads the models.
+``_LOCK`` lets one thread at a time build or use it: endpoints call ``parse`` from a thread pool,
+and two parses at once would only fight for the same CPU (and could load the models twice).
 The models are downloaded once (``docling-tools models download``, done in the Docker image).
 OCR is Docling's ``auto`` choice, RapidOCR here (it comes with Docling).
 """
 
 import io
 import logging
+import sys
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -23,9 +27,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+_LOCK = threading.Lock()
+
 PDF = "application/pdf"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-IMAGE_TYPES = {"image/jpeg", "image/png", "image/tiff"}
 
 # Docling picks the reader from the file name's extension, so each type gets a fixed name.
 _NAMES = {
@@ -38,11 +43,10 @@ _NAMES = {
 
 
 class ParseError(ValueError):
-    """The file could not be read. ``reason`` says why, in words safe to show to the user."""
+    """The file could not be read. The message says why, in words safe to show to the user."""
 
     def __init__(self, reason: str, too_many_pages: int | None = None):
         super().__init__(reason)
-        self.reason = reason
         self.too_many_pages = too_many_pages  # the page count, when that was the problem
 
 
@@ -56,8 +60,9 @@ def parse(content: bytes, content_type: str, max_pages: int | None = None) -> li
     """Return every page in order. An empty page is kept, so the numbers still match the viewer.
 
     A DOCX has no fixed pages, so it comes back as one page. Raises ``ParseError`` for an
-    unsupported type, a file above ``max_pages`` (counted before anything is read), or a file
-    that cannot be read (damaged, encrypted).
+    unsupported type, a file above ``max_pages`` (counted before anything is read), a file that
+    cannot be read (damaged, encrypted), or one that was read only in part (the time limit ran
+    out): half a document is never returned as if it were whole.
     """
     name = _NAMES.get(content_type)
     if name is None:
@@ -67,13 +72,13 @@ def parse(content: bytes, content_type: str, max_pages: int | None = None) -> li
 
     from docling.datamodel.base_models import ConversionStatus, DocumentStream
 
-    kwargs = {"max_num_pages": max_pages} if max_pages else {}
     try:
-        result = _converter().convert(
-            DocumentStream(name=name, stream=io.BytesIO(content)),
-            raises_on_error=False,
-            **kwargs,
-        )
+        with _LOCK:
+            result = _converter().convert(
+                DocumentStream(name=name, stream=io.BytesIO(content)),
+                raises_on_error=False,
+                max_num_pages=max_pages or sys.maxsize,
+            )
     except Exception as exc:  # docling raises many kinds of errors on bad files
         raise ParseError("The file is damaged and cannot be read.") from exc
 
@@ -83,7 +88,13 @@ def parse(content: bytes, content_type: str, max_pages: int | None = None) -> li
             f"The file has {page_count} pages; the limit is {max_pages} pages.",
             too_many_pages=page_count,
         )
-    if result.status not in (ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS):
+    if result.status == ConversionStatus.PARTIAL_SUCCESS:
+        logger.warning(
+            "Docling read a file only in part",
+            extra={"content_type": content_type, "page_count": page_count},
+        )
+        raise ParseError("The file took too long to read, or some of its pages failed.")
+    if result.status != ConversionStatus.SUCCESS:
         logger.info(
             "Docling could not read a file",
             extra={"content_type": content_type, "status": str(result.status)},
@@ -108,31 +119,49 @@ def _blocks_by_page(document) -> dict[int, list[str]]:
     copies is found again by the citation check. Tables are the exception: a markdown table keeps
     its rows and columns, which matters for invoices.
 
-    Docling joins a paragraph that runs over a page break into one item with one provenance per
-    page, each with the span of the text on that page. The text is split along those spans, so
-    every page gets only its own words (``export_to_text(page_no=...)`` would put the whole
-    paragraph on its first page). An item with no provenance (a DOCX) belongs to page 1.
+    Page headers and footers and the text inside figures are included. Docling keeps them apart
+    from the body, but an invoice number in a header or a total in a stamp is content here, and
+    a repeated footer costs less than a missing one.
+
+    An item with no provenance (a DOCX has no pages) belongs to page 1.
     """
     from docling_core.types.doc import TableItem, TextItem
+    from docling_core.types.doc.common.content_layer import ContentLayer
 
     by_page: dict[int, list[str]] = {}
-    for item, _level in document.iterate_items():
+    items = document.iterate_items(
+        traverse_pictures=True,
+        included_content_layers={ContentLayer.BODY, ContentLayer.FURNITURE},
+    )
+    for item, _level in items:
+        first_page = item.prov[0].page_no if getattr(item, "prov", None) else 1
         if isinstance(item, TableItem):
-            parts = [
-                (prov.page_no, item.export_to_markdown(doc=document)) for prov in item.prov[:1]
-            ]
-            parts = parts or [(1, item.export_to_markdown(doc=document))]
+            parts = [(first_page, item.export_to_markdown(doc=document))]
         elif isinstance(item, TextItem):
-            if len(item.prov) > 1:
-                parts = [(p.page_no, item.text[p.charspan[0] : p.charspan[1]]) for p in item.prov]
-            else:
-                parts = [(item.prov[0].page_no if item.prov else 1, item.text)]
+            parts = _split_by_page(item) or [(first_page, item.text)]
         else:
             continue
         for page_no, text in parts:
             if text.strip():
                 by_page.setdefault(page_no, []).append(text.strip())
     return by_page
+
+
+def _split_by_page(item) -> list[tuple[int, str]]:
+    """The parts of a paragraph that runs over a page break, each with its own page.
+
+    Docling joins such a paragraph into one item with one provenance per page, each with the
+    span of the text on that page (``export_to_text(page_no=...)`` would put it all on the first
+    page). Returns nothing for an item on one page, or when the spans do not line up with the
+    text; the caller then keeps the item whole on its first page.
+    """
+    if len(item.prov) < 2:
+        return []
+    spans = [prov.charspan for prov in item.prov]
+    in_order = all(a[1] <= b[0] for a, b in zip(spans, spans[1:]))
+    if spans[0][0] != 0 or spans[-1][1] != len(item.text) or not in_order:
+        return []
+    return [(prov.page_no, item.text[prov.charspan[0] : prov.charspan[1]]) for prov in item.prov]
 
 
 @lru_cache(maxsize=1)

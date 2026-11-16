@@ -114,6 +114,8 @@ docling-tools models download layout tableformer rapidocr
 
 Set `DOCUMENT_OCR_ENABLED=false` to read only the text layer of PDFs (faster).
 
+The tests that run the real Docling are marked `slow` and skipped by default; run them with `pytest -m slow`.
+
 ### 2. Configure the application
 
 Create `.env` in the repository root. The checked-in `.env.example` is not yet complete, so use the full example in [Configuration](#configuration).

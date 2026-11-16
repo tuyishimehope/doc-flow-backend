@@ -2,7 +2,6 @@ import datetime
 import io
 import logging
 
-from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -21,26 +20,8 @@ logger = logging.getLogger(__name__)
 BUCKET_NAME = settings.MINIO_BUCKET
 
 
-async def post_file(file: UploadFile, file_id: str):
-    file.file.seek(0, 2)
-    size = file.file.tell()
-    file.file.seek(0)
-
-    # The MinIO client is blocking; keep it off the event loop.
-    await run_in_threadpool(
-        minio_client.put_object,
-        bucket_name=BUCKET_NAME,
-        object_name=file_id,
-        data=file.file,
-        length=size,
-        content_type=file.content_type or "",
-    )
-
-    return {"file_id": file_id}
-
-
 async def post_bytes(content: bytes, file_id: str, content_type: str) -> None:
-    """Like ``post_file``, for bytes that are already in memory."""
+    """Store bytes that are already in memory (checked and scanned by the caller)."""
     await run_in_threadpool(
         minio_client.put_object,
         bucket_name=BUCKET_NAME,

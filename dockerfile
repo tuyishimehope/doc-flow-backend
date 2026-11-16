@@ -14,8 +14,10 @@ RUN pip install \
     --extra-index-url https://download.pytorch.org/whl/cpu \
     -r requirements.txt
 
-# Docling's layout, table and OCR (RapidOCR) models, baked into the image so no worker downloads them at run time.
-RUN docling-tools models download layout tableformer rapidocr
+# Docling's layout, table and OCR (RapidOCR) models, baked into the image so nothing is downloaded
+# at run time. Docling reads this folder only because DOCLING_ARTIFACTS_PATH points at it.
+ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
+RUN docling-tools models download -o /opt/docling-models layout tableformer rapidocr
 
 COPY . .
 

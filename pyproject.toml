@@ -26,3 +26,8 @@ select = ["E", "W", "F", "I", "N"]
 # Renaming `Document_Status` to `DocumentStatus` changes the type name and needs a migration.
 "app/models/schema.py" = ["N801"]
 "app/service/document/schema.py" = ["N801"]
+
+[tool.pytest.ini_options]
+# The slow tests run the real Docling (models, a download on the first run): pytest -m slow
+markers = ["slow: loads Docling's models; skipped unless asked for with -m slow"]
+addopts = "-m 'not slow'"

@@ -3,7 +3,6 @@ from typing import Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.db.dependencies import get_db_session
 from app.service.auth.auth import CurrentUser
 from app.service.document.crud import (
@@ -27,9 +26,9 @@ from app.service.document.schema import (
     ProcessingRequestResponse,
     ProcessRequest,
 )
-from app.utils.document import valid_type_document, validate_document_content
+from app.utils.document import check_docx, document_policy
 from app.utils.scan import scan_upload
-from app.utils.upload import UploadRejectedError
+from app.utils.upload import UploadRejectedError, read_checked_upload
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
@@ -42,31 +41,16 @@ async def post_document_endpoint(
     instructions: str | None = Body(default=None),
     db_session: AsyncSession = Depends(get_db_session),
 ):
-    result = valid_type_document(file=file)
-    if not result:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="File Format Not Accepted"
-        )
-
-    content = await file.read(settings.MAX_UPLOAD_SIZE_BYTES + 1)
-    if len(content) > settings.MAX_UPLOAD_SIZE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds the {settings.MAX_UPLOAD_SIZE_BYTES} byte upload limit",
-        )
     try:
-        await scan_upload(content)  # before any parser touches the file
+        upload = await read_checked_upload(file, document_policy())
+        await scan_upload(upload.content)  # before anything opens the file
+        check_docx(upload)
     except UploadRejectedError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
-    if not validate_document_content(file, content):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File contents do not match the declared supported format",
-        )
-    await file.seek(0)
     response = await process_document(
         id=current_user.id,
         file=file,
+        upload=upload,
         processing_type=processing_type,
         instructions=instructions,
         db_session=db_session,

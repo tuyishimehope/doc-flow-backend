@@ -72,7 +72,8 @@ async def clamd(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_a_real_pdf_passes_every_step(ten_mb_limit, clamd):
+async def test_a_real_pdf_passes_every_step(ten_mb_limit, clamd, monkeypatch):
+    monkeypatch.setattr(pdf, "parse", lambda *a, **k: [pdf.Page(1, "alpha"), pdf.Page(2, "bravo")])
     pages = await check(make_pdf(["alpha", "bravo"]))
 
     assert [(p.number, p.text) for p in pages] == [(1, "alpha"), (2, "bravo")]

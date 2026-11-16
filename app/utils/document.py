@@ -1,73 +1,56 @@
+"""Uploads for the processing route: PDF, DOCX and pictures of documents.
+
+``document_policy`` plugs into ``read_checked_upload`` (``app/utils/upload.py``), like
+``pdf_policy`` and ``image_policy``. The order in the route is: ``read_checked_upload`` (type,
+size, first bytes), ``scan_upload``, then ``check_docx`` for a DOCX, which opens the ZIP and so
+runs after the scan. The content itself is read later, by Docling in the worker.
+"""
+
 import io
-from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
-from fastapi import UploadFile
-from PIL import Image
+from app.core.config import settings
+from app.utils.parser import DOCX, PDF
+from app.utils.upload import CheckedUpload, FileType, UploadPolicy, UploadRejectedError
 
+MAX_DOCX_ENTRIES = 10_000
+MAX_DOCX_UNPACKED_BYTES = 50 * 1024 * 1024
 
-def get_file_extension(file: UploadFile) -> str:
-    if file.filename is None:
-        raise ValueError("Uploaded file has no filename")
-
-    return Path(file.filename).suffix.lstrip(".")
-
-
-ALLOWED_CONTENT_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "image/jpeg",
-    "image/png",
-    "image/tiff",
+_JPEG = FileType("image/jpeg", lambda b: b.startswith(b"\xff\xd8\xff"))
+_TIFF = FileType("image/tiff", lambda b: b.startswith((b"II*\x00", b"MM\x00*")))
+DOCUMENT_TYPES = {
+    "pdf": FileType(PDF, lambda b: b.startswith(b"%PDF-")),
+    "docx": FileType(DOCX, lambda b: b.startswith(b"PK\x03\x04")),  # a ZIP container
+    "jpg": _JPEG,
+    "jpeg": _JPEG,
+    "png": FileType("image/png", lambda b: b.startswith(b"\x89PNG\r\n\x1a\n")),
+    "tif": _TIFF,
+    "tiff": _TIFF,
 }
 
 
-def valid_type_document(file: UploadFile) -> bool:
-    return file.content_type in ALLOWED_CONTENT_TYPES
+def document_policy() -> UploadPolicy:
+    return UploadPolicy(types=DOCUMENT_TYPES, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
 
 
-def validate_document_content(file: UploadFile, content: bytes) -> bool:
-    """Check that uploaded bytes match the declared supported document type."""
-    content_type = file.content_type
-    if not content:
-        return False
+def check_docx(upload: CheckedUpload) -> None:
+    """Refuse a DOCX that is not a Word file, or that unpacks to far more than it weighs.
 
-    if content_type == "application/pdf":
-        # Only the signature here: the file is read once, by Docling in the worker, which
-        # fails the request with a clear reason if it is damaged or encrypted.
-        return content.startswith(b"%PDF-")
-    if content_type in {"image/jpeg", "image/png", "image/tiff"}:
-        signatures = {
-            "image/jpeg": content.startswith(b"\xff\xd8\xff"),
-            "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
-            "image/tiff": content.startswith((b"II*\x00", b"MM\x00*")),
-        }
-        if not signatures[content_type]:
-            return False
-        try:
-            with Image.open(io.BytesIO(content)) as image:
-                image.verify()
-            return True
-        except Exception:
-            return False
-    if content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        # DOCX is a ZIP container; verify its signature and required document entry.
-        from zipfile import BadZipFile, ZipFile
-
-        try:
-            with ZipFile(io.BytesIO(content)) as archive:
-                entries = archive.infolist()
-                if (
-                    len(entries) > 10_000
-                    or sum(entry.file_size for entry in entries) > 50 * 1024 * 1024
-                ):
-                    return False
-                if (
-                    "[Content_Types].xml" not in archive.namelist()
-                    or "word/document.xml" not in archive.namelist()
-                ):
-                    return False
-                return archive.testzip() is None
-        except (BadZipFile, OSError):
-            return False
-
-    return False
+    Does nothing for the other types. Raises ``UploadRejectedError`` (422).
+    """
+    if upload.mime != DOCX:
+        return
+    try:
+        with ZipFile(io.BytesIO(upload.content)) as archive:
+            entries = archive.infolist()
+            names = {entry.filename for entry in entries}
+            ok = (
+                len(entries) <= MAX_DOCX_ENTRIES
+                and sum(entry.file_size for entry in entries) <= MAX_DOCX_UNPACKED_BYTES
+                and {"[Content_Types].xml", "word/document.xml"} <= names
+                and archive.testzip() is None
+            )
+    except (BadZipFile, OSError):
+        ok = False
+    if not ok:
+        raise UploadRejectedError(422, "This is not a valid Word document.")

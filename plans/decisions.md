@@ -16,8 +16,15 @@ so scanned PDFs now work on every path.
 **What follows from it.**
 
 - The page cap is still checked before any page is read: Docling counts pages and stops above `max_num_pages`.
-- The upload check of the old route no longer opens the PDF; it checks the `%PDF-` signature only. A damaged or
-  encrypted file now fails in the worker with a reason the user sees, instead of a 400 at upload.
+- The processing route uses the same upload checks as the other routes (`read_checked_upload` with
+  `document_policy`, then the scan, then a ZIP check for DOCX). The type is decided by the extension and the first
+  bytes, never by the client's content type, and the answers are 415 / 413 / 422 instead of one 400. A damaged or
+  encrypted PDF passes the upload and fails in the worker with a reason the user sees.
+- A file read only in part (the time limit ran out, or a page failed) is refused, not stored as if it were whole.
+- Page headers and footers and the text inside figures are kept: an invoice number in a header is content. The
+  price is a footer repeated on every page.
+- One parse at a time per process (a lock around the converter). Docling reads the baked models only because
+  `DOCLING_ARTIFACTS_PATH` is set in the image; without it every container downloads them again.
 - Page text is Docling's plain text (blocks separated by a blank line, no markdown marks), so chunking and the
   citation check work as before. Text of the same PDF can differ a little from `pypdf`'s; stored pages of old
   documents are not re-read.
@@ -25,8 +32,12 @@ so scanned PDFs now work on every path.
   in a process loads the models, a few seconds; the converter is kept for the next files.
 - `DOCUMENT_OCR_ENABLED` turns OCR off; `DOCUMENT_PARSE_TIMEOUT_SECONDS` bounds one file.
 
-**Not decided here (trigger to decide it).** Running Docling on a GPU, or in its own worker queue: when parsing
-time shows up as the slow part of a request.
+**Not decided here (trigger to decide it).**
+
+- Parsing still runs inside the request for `/documents/qa` and the one-shot chat route. A warm parse with OCR
+  is seconds per page, so B1's reason (reading is under a second) no longer holds. Move it to the worker, behind
+  `index_status`, before long or scanned PDFs are common; until then `DOCUMENT_OCR_ENABLED=false` is the stopgap.
+- A page cap for the worker's parse, and telling "encrypted" from "damaged" in the error message.
 
 ## 2026-10-22 · Part C (plan_4): how retrieval is built
 

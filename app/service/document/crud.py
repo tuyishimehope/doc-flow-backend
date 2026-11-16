@@ -24,8 +24,8 @@ from app.service.file.file import delete_file
 logger = logging.getLogger(__name__)
 
 
-async def save_file(file, file_name, db_session: AsyncSession):
-    file_object = File(name=file.filename, content_type=file.content_type, extension=file_name)
+async def save_file(file, file_name, content_type, db_session: AsyncSession):
+    file_object = File(name=file.filename, content_type=content_type, extension=file_name)
 
     db_session.add(file_object)
     await db_session.flush()
