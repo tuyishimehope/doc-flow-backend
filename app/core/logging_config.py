@@ -11,6 +11,8 @@
   child processes, and a thread started before a fork does not exist in the children, so their
   queued records would never be written. A worker has no event loop to block, so this costs
   nothing.
+* Every line carries ``environment`` (``ENVIRONMENT``: development, staging or production), so
+  logs from several deployments collected in one place can be told apart.
 * Only the fields in ``JsonLogFormatter.context_fields`` are printed from ``extra``. This is on
   purpose: it keeps user text (questions, answers, file names) out of the logs even by mistake.
 
@@ -31,6 +33,7 @@ from datetime import datetime, timezone
 from logging.handlers import QueueHandler, QueueListener
 from typing import TextIO
 
+from app.core.config import settings
 from app.core.request_log import request_id_var
 
 DEFAULT_QUEUE_SIZE = 10_000
@@ -40,6 +43,10 @@ QUIET_LOGGERS = ("httpx", "httpcore", "urllib3")
 
 class JsonLogFormatter(logging.Formatter):
     """Emit consistent JSON records with selected request and task context."""
+
+    def __init__(self, environment: str | None = None) -> None:
+        super().__init__()
+        self.environment = environment
 
     context_fields = (
         "request_id",
@@ -88,6 +95,8 @@ class JsonLogFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        if self.environment:
+            payload["environment"] = self.environment
         for field in self.context_fields:
             value = getattr(record, field, None)
             if value is not None:
@@ -180,20 +189,25 @@ def queue_logs_enabled() -> bool:
 
 
 def configure_logging(
-    *, use_queue: bool = False, stream: TextIO | None = None, max_queue_size: int | None = None
+    *,
+    use_queue: bool = False,
+    stream: TextIO | None = None,
+    max_queue_size: int | None = None,
+    environment: str | None = None,
 ) -> None:
     """Set up logging for this process. Safe to call again: the new setup replaces the old one.
 
     The API calls it with ``use_queue=queue_logs_enabled()``. The Celery app imports it too, with
     the default (no queue), so the API process first gets a plain setup and is then switched to the
     queue by ``main``. ``stream`` is for tests; by default the output goes to stdout.
+    ``environment`` is written on every line; by default it is ``settings.ENVIRONMENT``.
     """
     global _writer, _handler, _listener, _exit_hook_registered
     root_logger = logging.getLogger()
     shutdown_logging(keep_output=False)  # remove our previous setup, flushing what is waiting
 
     writer = logging.StreamHandler(stream) if stream is not None else _StdoutHandler()
-    writer.setFormatter(JsonLogFormatter())
+    writer.setFormatter(JsonLogFormatter(environment or settings.ENVIRONMENT.value))
 
     if use_queue:
         size = max_queue_size or int(os.getenv("LOG_QUEUE_SIZE", DEFAULT_QUEUE_SIZE))

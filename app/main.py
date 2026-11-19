@@ -15,7 +15,7 @@ from app.api.v1.document.qa import router as document_qa_router
 from app.api.v1.file.file import router as file_router
 from app.api.v1.processing_request.processing_request import router as processing_request_router
 from app.core.config import settings
-from app.core.docs import register_docs
+from app.core.docs import docs_settings, register_docs
 from app.core.logging_config import configure_logging, queue_logs_enabled
 from app.core.observability import init_sentry
 from app.core.request_log import RequestLogMiddleware
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan, docs_url=None, title="DOC-FLOW-API")
+app = FastAPI(lifespan=lifespan, title="DOC-FLOW-API", **docs_settings())
 
 app.add_middleware(
     CORSMiddleware,

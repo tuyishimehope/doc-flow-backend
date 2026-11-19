@@ -1,5 +1,15 @@
-from pydantic import Field, SecretStr, ValidationError
+from enum import StrEnum
+
+from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Environment(StrEnum):
+    """Where the app runs. Read from ENVIRONMENT, in any case (DEVELOPMENT works too)."""
+
+    DEVELOPMENT = "development"
+    STAGING = "staging"
+    PRODUCTION = "production"
 
 
 class Settings(BaseSettings):
@@ -93,7 +103,8 @@ class Settings(BaseSettings):
 
     # Sentry error and performance monitoring. Switched off while SENTRY_DSN is empty.
     SENTRY_DSN: str = ""
-    SENTRY_ENVIRONMENT: str = "development"
+    # Empty = the same as ENVIRONMENT (see sentry_environment).
+    SENTRY_ENVIRONMENT: str = ""
     SENTRY_RELEASE: str = ""
     SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.1, ge=0, le=1)
     SENTRY_ENABLE_LOGS: bool = True
@@ -111,9 +122,13 @@ class Settings(BaseSettings):
     TRANSCRIBE_MODEL: str = Field(default="whisper-large-v3-turbo")
     TRANSCRIBE_MAX_FILE_MB: int = Field(default=10, gt=0, le=25)
     TRANSCRIBE_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
-    # "development" shows the values of failed SQL statements in error messages. Anything else,
-    # including this default, hides them, because they hold users' messages and transcripts.
-    ENVIRONMENT: str = Field(default="production")
+    # development, staging or production (the default, so a forgotten value is the safe one).
+    # * development: failed SQL statements show their values (they hold users' messages and
+    #   transcripts, so every other environment hides them).
+    # * production: no API documentation (/docs, /redoc, /openapi.json answer 404).
+    # Every log line carries it as "environment", and Sentry uses it unless SENTRY_ENVIRONMENT
+    # is set. Any other value stops the app at startup instead of silently acting as production.
+    ENVIRONMENT: Environment = Environment.PRODUCTION
     # Image questions use the Gemini key and base URL above. The limit is on the raw file:
     # base64 makes it a third bigger, and Gemini accepts 20 MB for the whole request.
     VISION_MODEL: str = Field(default="gemini-3.1-flash-lite")
@@ -147,6 +162,28 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
     EMBEDDING_BATCH_SIZE: int = Field(default=50, gt=0, le=100)  # texts per request
     EMBEDDING_TIMEOUT_SECONDS: int = Field(default=60, gt=0, le=120)
+
+    @field_validator("ENVIRONMENT", mode="before")
+    @classmethod
+    def _environment_in_any_case(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT is Environment.PRODUCTION
+
+    @property
+    def is_development(self) -> bool:
+        return self.ENVIRONMENT is Environment.DEVELOPMENT
+
+    @property
+    def docs_enabled(self) -> bool:
+        """API documentation is served everywhere except production."""
+        return not self.is_production
+
+    @property
+    def sentry_environment(self) -> str:
+        return self.SENTRY_ENVIRONMENT.strip() or self.ENVIRONMENT.value
 
 
 def load_settings() -> Settings:

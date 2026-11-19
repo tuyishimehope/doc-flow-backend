@@ -240,7 +240,7 @@ Error and performance monitoring is optional and stays off while `SENTRY_DSN` is
 
 ```dotenv
 SENTRY_DSN=https://<key>@<org>.ingest.sentry.io/<project>
-SENTRY_ENVIRONMENT=production
+SENTRY_ENVIRONMENT=        # empty = the same as ENVIRONMENT
 SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
@@ -294,7 +294,14 @@ TRANSCRIBE_TIMEOUT_SECONDS=60
 ENVIRONMENT=production
 ```
 
-`TRANSCRIBE_MAX_FILE_MB` is at most 25 (the provider's free-tier limit) and `TRANSCRIBE_TIMEOUT_SECONDS` at most 120. `ENVIRONMENT=development` shows the values of failed SQL statements in error messages, which helps while coding; any other value (the default is `production`) hides them, because they contain users' messages and transcripts.
+`TRANSCRIBE_MAX_FILE_MB` is at most 25 (the provider's free-tier limit) and `TRANSCRIBE_TIMEOUT_SECONDS` at most 120. `ENVIRONMENT` is `development`, `staging` or `production` (the default; the case does not matter, and any other value stops the app at startup):
+
+| | development | staging | production |
+|---|---|---|---|
+| API docs (`/docs`, `/redoc`, `/openapi.json`) | served | served | 404 |
+| Values of failed SQL statements in errors | shown | hidden | hidden |
+
+Every JSON log line carries the value as `"environment"`, and Sentry reports under it unless `SENTRY_ENVIRONMENT` is set. SQL values are hidden outside development because they contain users' messages and transcripts.
 
 What is kept: the transcript text, plus the model, the size of the audio in bytes and how long the provider took. What is not kept: the audio itself. Neither the transcript nor the file name is written to the logs, and Sentry never receives request bodies. The audio is sent to Groq, a hosted service, so do not send recordings you are not allowed to share with a third party.
 

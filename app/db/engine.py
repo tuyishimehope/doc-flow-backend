@@ -12,8 +12,8 @@ DATABASE_PORT = settings.DATABASE_PORT
 DATABASE_USER = settings.DATABASE_USER
 
 # A failed query puts its SQL parameters into the error message, and with them the user's text
-# (chat messages, transcripts). Hidden unless ENVIRONMENT is exactly "development".
-HIDE_PARAMETERS = settings.ENVIRONMENT.strip().lower() != "development"
+# (chat messages, transcripts). Hidden unless ENVIRONMENT is development.
+HIDE_PARAMETERS = not settings.is_development
 
 engine = create_async_engine(
     f"postgresql+asyncpg://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}",

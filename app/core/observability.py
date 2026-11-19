@@ -49,7 +49,7 @@ def init_sentry(*, transport: Any = None) -> bool:
         return False
     sentry_sdk.init(
         dsn=dsn,
-        environment=settings.SENTRY_ENVIRONMENT,
+        environment=settings.sentry_environment,
         release=settings.SENTRY_RELEASE or None,
         traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
         enable_logs=settings.SENTRY_ENABLE_LOGS,
@@ -79,7 +79,7 @@ def init_sentry(*, transport: Any = None) -> bool:
     ignore_logger_for_sentry_logs("uvicorn.access")
     logger.info(
         "Sentry is on",
-        extra={"environment": settings.SENTRY_ENVIRONMENT},
+        extra={"environment": settings.sentry_environment},
     )
     return True
 
