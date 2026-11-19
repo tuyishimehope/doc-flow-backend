@@ -1,5 +1,5 @@
 fastapi[standard]==0.116.1
-minio==7.2.16
+boto3==1.43.70
 alembic==1.16.4
 python-dotenv==1.1.1
 celery==5.5.3

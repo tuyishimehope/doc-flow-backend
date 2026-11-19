@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from minio.error import S3Error
+from botocore.exceptions import ClientError
 from openai import APITimeoutError
 from sqlalchemy import func, select
 
@@ -90,9 +90,9 @@ async def test_storing_a_pdf_keeps_the_file_the_document_and_every_page(
 
     mocked_minio.put_object.assert_called_once()
     put = mocked_minio.put_object.call_args.kwargs
-    assert put["object_name"] == str(body["file_id"])
-    assert put["length"] == len(PDF)
-    assert put["data"].read() == PDF
+    assert put["Key"] == str(body["file_id"])
+    assert put["ContentLength"] == len(PDF)
+    assert put["Body"] == PDF
 
     pages = await get_pages(body["document_id"], db_session)
     assert [(p.number, p.text) for p in pages] == [
@@ -110,7 +110,7 @@ async def test_the_stored_content_type_comes_from_us_not_from_the_client(
     assert response.status_code == 201
     file_row = await db_session.get(File, response.json()["file_id"])
     assert (file_row.content_type, file_row.extension) == ("application/pdf", "pdf")
-    assert mocked_minio.put_object.call_args.kwargs["content_type"] == "application/pdf"
+    assert mocked_minio.put_object.call_args.kwargs["ContentType"] == "application/pdf"
 
 
 @pytest.mark.anyio
@@ -188,8 +188,10 @@ async def test_if_saving_the_pages_fails_the_rows_and_the_object_are_removed(
         await store(client, auth_headers)
 
     assert await count(db_session, File) == await count(db_session, Document) == 0
-    stored_name = mocked_minio.put_object.call_args.kwargs["object_name"]
-    mocked_minio.remove_object.assert_called_once_with(settings.MINIO_BUCKET, stored_name)
+    stored_name = mocked_minio.put_object.call_args.kwargs["Key"]
+    mocked_minio.delete_object.assert_called_once_with(
+        Bucket=settings.MINIO_BUCKET, Key=stored_name
+    )
 
 
 @pytest.mark.anyio
@@ -202,7 +204,7 @@ async def test_if_the_upload_to_storage_fails_no_rows_are_kept(
         await store(client, auth_headers)
 
     assert await count(db_session, File) == await count(db_session, Document) == 0
-    mocked_minio.remove_object.assert_not_called()  # nothing was stored, so nothing to remove
+    mocked_minio.delete_object.assert_not_called()  # nothing was stored, so nothing to remove
 
 
 @pytest.mark.anyio
@@ -221,7 +223,9 @@ async def test_a_nul_character_in_page_text_is_dropped_because_postgres_refuses_
 
 
 def serve(mocked_minio, chunks=(b"%PDF-1.4 ", b"rest")):
-    mocked_minio.get_object.return_value = MagicMock(**{"stream.return_value": list(chunks)})
+    mocked_minio.get_object.return_value = {
+        "Body": MagicMock(**{"iter_chunks.return_value": list(chunks)})
+    }
 
 
 @pytest.mark.anyio
@@ -253,13 +257,8 @@ async def test_nobody_else_can_get_the_file(client, auth_headers, other_headers,
 @pytest.mark.anyio
 async def test_a_file_missing_from_storage_is_404_not_a_crash(client, auth_headers, mocked_minio):
     document_id = await stored_id(client, auth_headers)
-    mocked_minio.get_object.side_effect = S3Error(
-        "NoSuchKey",
-        "missing",
-        "/x",
-        "request",
-        "host",
-        None,  # type: ignore[arg-type]
+    mocked_minio.get_object.side_effect = ClientError(
+        {"Error": {"Code": "NoSuchKey", "Message": "missing"}}, "GetObject"
     )
 
     response = await client.get(f"{API}/{document_id}/file", headers=auth_headers)
@@ -567,7 +566,9 @@ async def test_deleting_a_document_deletes_its_pages_and_its_file(
 
     assert deleted.status_code == 200
     assert await count(db_session, DocumentPage) == 0  # a copy of the content: really gone
-    mocked_minio.remove_object.assert_called_once_with(settings.MINIO_BUCKET, str(file_id))
+    mocked_minio.delete_object.assert_called_once_with(
+        Bucket=settings.MINIO_BUCKET, Key=str(file_id)
+    )
     document = await db_session.get(Document, document_id)
     await db_session.refresh(document)
     assert document.deleted_at is not None  # the row itself is only hidden, as before
@@ -608,7 +609,7 @@ async def test_another_users_delete_changes_nothing(
 
     assert (await client.delete(f"{API}/{document_id}", headers=other_headers)).status_code == 404
     assert await count(db_session, DocumentPage) == 2
-    mocked_minio.remove_object.assert_not_called()
+    mocked_minio.delete_object.assert_not_called()
 
 
 # --- the migration --------------------------------------------------------------------------

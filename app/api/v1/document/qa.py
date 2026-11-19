@@ -9,9 +9,9 @@ import asyncio
 import logging
 from typing import Annotated, Any
 
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from minio.error import S3Error
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.chat.router import (
@@ -28,6 +28,7 @@ from app.api.v1.document.qa_schema import (
     StoredDocumentResponse,
 )
 from app.core.config import settings
+from app.core.storage import is_missing
 from app.db.dependencies import get_db_session
 from app.service.auth.auth import CurrentUser
 from app.service.chat.chat import RetrievalUnavailableError, ask_stored_document
@@ -239,7 +240,9 @@ async def get_document_file(id: int, current_user: CurrentUser, db_session: DbSe
         result = await get_file_by_id(
             id=document.file_id, current_user=current_user, db_session=db_session
         )
-    except S3Error:
+    except ClientError as error:
+        if not is_missing(error):
+            raise
         logger.exception("Stored file is missing", extra={"document_id": document.id})
         result = None
     if result is None:

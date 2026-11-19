@@ -1,13 +1,13 @@
 import datetime
-import io
 import logging
 
+from botocore.response import StreamingBody
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
-from app.core.minio import minio_client
+from app.core.storage import s3_client
 from app.models.schema import Document
 from app.service.auth.auth import CurrentUser
 from app.service.document.chunks import delete_chunks
@@ -23,21 +23,22 @@ BUCKET_NAME = settings.MINIO_BUCKET
 async def post_bytes(content: bytes, file_id: str, content_type: str) -> None:
     """Store bytes that are already in memory (checked and scanned by the caller)."""
     await run_in_threadpool(
-        minio_client.put_object,
-        bucket_name=BUCKET_NAME,
-        object_name=file_id,
-        data=io.BytesIO(content),
-        length=len(content),
-        content_type=content_type,
+        s3_client.put_object,
+        Bucket=BUCKET_NAME,
+        Key=file_id,
+        Body=content,
+        ContentLength=len(content),
+        ContentType=content_type,
     )
 
 
-def get_file(file_id: int):
-    return minio_client.get_object(BUCKET_NAME, str(file_id))
+def get_file(file_id: int) -> StreamingBody:
+    """The object's body; the caller reads it and closes it."""
+    return s3_client.get_object(Bucket=BUCKET_NAME, Key=str(file_id))["Body"]
 
 
 def delete_file(file_id: int):
-    minio_client.remove_object(BUCKET_NAME, str(file_id))
+    s3_client.delete_object(Bucket=BUCKET_NAME, Key=str(file_id))
 
 
 async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSession):
@@ -46,14 +47,13 @@ async def get_file_by_id(id: int, current_user: CurrentUser, db_session: AsyncSe
     if not file_record:
         return None
 
-    response = await run_in_threadpool(get_file, id)
+    body = await run_in_threadpool(get_file, id)
 
     def stream_content():
         try:
-            yield from response.stream(64 * 1024)
+            yield from body.iter_chunks(64 * 1024)
         finally:
-            response.close()
-            response.release_conn()
+            body.close()
 
     return {
         "name": file_record.name,

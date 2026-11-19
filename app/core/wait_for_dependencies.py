@@ -8,7 +8,7 @@ import redis
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.minio import minio_client
+from app.core.storage import s3_client
 from app.db.engine import engine
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def check_redis() -> None:
 
 
 def check_minio() -> None:
-    minio_client.bucket_exists(settings.MINIO_BUCKET)
+    s3_client.head_bucket(Bucket=settings.MINIO_BUCKET)
 
 
 async def wait_for_dependencies() -> None:

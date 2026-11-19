@@ -17,9 +17,9 @@ from app.api.v1.processing_request.processing_request import router as processin
 from app.core.config import settings
 from app.core.docs import register_docs
 from app.core.logging_config import configure_logging, queue_logs_enabled
-from app.core.minio import minio_client
 from app.core.observability import init_sentry
 from app.core.request_log import RequestLogMiddleware
+from app.core.storage import ensure_bucket
 from app.core.wait_for_dependencies import (
     check_database,
     check_minio,
@@ -59,8 +59,7 @@ async def lifespan(app: FastAPI):
 
     bucket_name = settings.MINIO_BUCKET
 
-    if not minio_client.bucket_exists(bucket_name):
-        minio_client.make_bucket(bucket_name)
+    if await asyncio.to_thread(ensure_bucket, bucket_name):
         logger.info("Created MinIO bucket", extra={"bucket_name": bucket_name})
 
     yield

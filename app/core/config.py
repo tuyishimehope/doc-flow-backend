@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str
     MINIO_BUCKET: str
     MINIO_SECURE: bool
+    MINIO_REGION: str = "us-east-1"
 
     MAX_UPLOAD_SIZE_BYTES: int = Field(default=10 * 1024 * 1024, gt=0)
     DEPENDENCY_STARTUP_TIMEOUT_SECONDS: int = Field(default=60, gt=0)

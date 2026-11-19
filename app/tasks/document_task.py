@@ -230,5 +230,4 @@ async def process_document(self, processing_request_id: int):
     finally:
         if file_object is not None:
             file_object.close()
-            file_object.release_conn()
         db_session.close()

@@ -107,7 +107,7 @@ async def db_session(
 
 @pytest.fixture
 def mocked_minio():
-    with patch("app.service.file.file.minio_client") as mock_client:
+    with patch("app.service.file.file.s3_client") as mock_client:
         yield mock_client
 
 
